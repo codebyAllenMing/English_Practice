@@ -1,0 +1,29 @@
+# Virtual Environment
+venv/
+env/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Audio files (generated/downloaded)
+*.wav
+*.mp3
+
+# Model cache
+.cache/
+*.onnx
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

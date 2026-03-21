@@ -2,18 +2,27 @@ import re
 import tty
 import termios
 import sys
+import os
+import questionary
 import sounddevice as sd
 from kokoro import KPipeline
 
-# 設定
-TEXT_FILE = "Career Strategy For People With Too Many Interests/word.txt"
+# 選擇 podcast
+PODCASTS_DIR = "podcasts"
+folders = sorted([f for f in os.listdir(PODCASTS_DIR) if os.path.isdir(os.path.join(PODCASTS_DIR, f))])
 
-# 角色對應聲音
-VOICE_MAP = {
-    "Jake": "am_michael",
-    "Anna": "af_heart",
-}
+choice = questionary.select(
+    "選擇要播放的 podcast：",
+    choices=folders
+).ask()
+
+TEXT_FILE = os.path.join(PODCASTS_DIR, choice, "word.txt")
+
+# 自動分配聲音池（依出現順序輪流）
+VOICE_POOL = ["am_michael", "af_heart"]
 DEFAULT_VOICE = "af_heart"
+
+speaker_voice_map = {}
 
 pipeline = KPipeline(lang_code='a')
 
@@ -37,7 +46,9 @@ for i, line in enumerate(lines):
     if match:
         speaker = match.group(1)
         text = match.group(2)
-        voice = VOICE_MAP.get(speaker, DEFAULT_VOICE)
+        if speaker not in speaker_voice_map:
+            speaker_voice_map[speaker] = VOICE_POOL[len(speaker_voice_map) % len(VOICE_POOL)]
+        voice = speaker_voice_map[speaker]
     else:
         text = line
         voice = DEFAULT_VOICE
