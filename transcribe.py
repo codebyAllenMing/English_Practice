@@ -121,6 +121,10 @@ def transcribe(folder_name):
     if os.path.exists(json_path):
         os.remove(json_path)
 
+    # 校正說話者名字
+    print("PROGRESS:校正說話者名字...", flush=True)
+    subprocess.run([sys.executable, "fix_speakers.py", word_path])
+
     print(f"DONE:{word_path}", flush=True)
 
 
