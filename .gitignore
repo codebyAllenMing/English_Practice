@@ -13,9 +13,10 @@ dist/
 build/
 *.egg
 
-# Audio files (generated/downloaded)
+# Audio files
 *.wav
 *.mp3
+*.webm
 
 # Model cache
 .cache/
@@ -27,3 +28,21 @@ build/
 # IDE
 .vscode/
 .idea/
+
+# Config (contains tokens)
+config.json
+
+# Logs
+logs/
+
+# Tauri build output
+app/src-tauri/target/
+app/dist/
+app/node_modules/
+
+# Podcast audio (only keep word.txt and json)
+podcasts/*/podcast.mp3
+podcasts/*/podcast.webm
+
+# Start script
+start.command
