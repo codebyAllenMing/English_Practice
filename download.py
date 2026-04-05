@@ -49,7 +49,7 @@ def download(url):
 
         proc = subprocess.Popen(
             ["yt-dlp", "-x", "--audio-format", "mp3",
-             "--ffmpeg-location", "ffmpeg",
+             "--ffmpeg-location", "/opt/homebrew/bin",
              "--newline", "-o", output_path, url],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )

@@ -74,8 +74,10 @@ def transcribe(folder_name):
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
     )
 
+    output_lines = []
     for line in proc.stdout:
         line = line.strip()
+        output_lines.append(line)
         if "Performing voice activity detection" in line:
             print("PROGRESS:語音偵測中...", flush=True)
         elif "alignment" in line.lower():
@@ -87,6 +89,8 @@ def transcribe(folder_name):
 
     proc.wait()
     if proc.returncode != 0:
+        detail = "\n".join(output_lines[-20:])
+        log_error("transcribe", f"whisperx 轉譯失敗: {folder_name}", detail)
         print("ERROR:轉譯失敗", flush=True)
         sys.exit(1)
 
@@ -107,13 +111,6 @@ def transcribe(folder_name):
         text = seg.get("text", "").strip()
         if text:
             lines.append(f"[{speaker}]: {text}")
-
-    # 自動偵測說話者名字
-    print("PROGRESS:偵測說話者名字...", flush=True)
-    speaker_names = detect_speaker_names(lines)
-    if speaker_names:
-        for old, new in speaker_names.items():
-            lines = [line.replace(f"[{old}]", f"[{new}]") for line in lines]
 
     word_path = os.path.join(folder_path, "word.txt")
     with open(word_path, "w") as f:
