@@ -13,6 +13,8 @@ function Practice() {
     const [ready, setReady] = useState(false)
     const [fontSize, setFontSize] = useState(24)
     const audioRef = useRef(null)
+    const listRef = useRef(null)
+    const lineRefs = useRef([])
     const loading = useLoading()
 
     useEffect(() => {
@@ -66,6 +68,12 @@ function Practice() {
     const handlePrev = () => playAt(currentIndex - 1)
     const handleNext = () => playAt(currentIndex + 1)
     const handleRepeat = () => playAt(currentIndex)
+
+    useEffect(() => {
+        if (lineRefs.current[currentIndex] && listRef.current) {
+            lineRefs.current[currentIndex].scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+    }, [currentIndex])
 
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -177,15 +185,17 @@ function Practice() {
                 鍵盤：↑ 上一句　← 重複　↓/空白 下一句
             </p>
 
-            <div className="mt-6 max-h-[300px] overflow-y-auto">
+            <div className="mt-6 max-h-[300px] overflow-y-auto" ref={listRef}>
                 <ul className="space-y-1">
                     {lines.map((line, i) => (
                         <li
                             key={i}
-                            className={`px-3 py-2 rounded text-sm cursor-pointer ${i === currentIndex ? 'bg-blue-50 border border-blue-200 text-blue-800' : 'text-gray-500 hover:bg-gray-50'}`}
+                            ref={el => lineRefs.current[i] = el}
+                            className={`px-3 py-2 rounded text-sm cursor-pointer flex gap-3 ${i === currentIndex ? 'bg-blue-50 border border-blue-200 text-blue-800' : 'text-gray-500 hover:bg-gray-50'}`}
                             onClick={() => playAt(i)}
                         >
-                            {line}
+                            <span className="text-gray-300 select-none w-8 text-right shrink-0">{i + 1}</span>
+                            <span>{line}</span>
                         </li>
                     ))}
                 </ul>

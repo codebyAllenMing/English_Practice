@@ -17,23 +17,25 @@ fn python_path() -> PathBuf {
     project_dir().join("venv").join("bin").join("python3")
 }
 
-struct PracticeProcess(Mutex<Option<PracticeChild>>);
+struct PracticeProcess(Mutex<Option<PersistentChild>>);
+struct ClaudeProcess(Mutex<Option<PersistentChild>>);
 
-struct PracticeChild {
+struct PersistentChild {
     child: Child,
     stdin: tokio::process::ChildStdin,
     reader: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
 }
 
-async fn spawn_practice() -> Result<PracticeChild, String> {
+async fn spawn_persistent(script: &str) -> Result<PersistentChild, String> {
+    let args: Vec<&str> = script.split_whitespace().collect();
     let mut child = Command::new(python_path())
-        .arg("practice.py")
+        .args(&args)
         .current_dir(project_dir())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()
-        .map_err(|e| format!("無法啟動 practice.py: {}", e))?;
+        .map_err(|e| format!("無法啟動 {}: {}", script, e))?;
 
     let stdin = child.stdin.take().unwrap();
     let stdout = child.stdout.take().unwrap();
@@ -46,7 +48,7 @@ async fn spawn_practice() -> Result<PracticeChild, String> {
         }
     }
 
-    Ok(PracticeChild { child, stdin, reader })
+    Ok(PersistentChild { child, stdin, reader })
 }
 
 #[tauri::command]
@@ -56,7 +58,7 @@ async fn start_practice(app: AppHandle) -> Result<(), String> {
     if guard.is_some() {
         return Ok(());
     }
-    let pc = spawn_practice().await?;
+    let pc = spawn_persistent("practice.py").await?;
     *guard = Some(pc);
     Ok(())
 }
@@ -251,6 +253,49 @@ fn get_lines(folder: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
+async fn start_claude(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<ClaudeProcess>();
+    let mut guard = state.0.lock().await;
+    if guard.is_some() {
+        return Ok(());
+    }
+    let pc = spawn_persistent("fix_speakers.py --daemon").await?;
+    *guard = Some(pc);
+    Ok(())
+}
+
+#[tauri::command]
+async fn stop_claude(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<ClaudeProcess>();
+    let mut guard = state.0.lock().await;
+    if let Some(mut pc) = guard.take() {
+        let _ = pc.stdin.write_all(b"QUIT\n").await;
+        let _ = pc.child.kill().await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn fix_speakers(app: AppHandle, word_path: String) -> Result<String, String> {
+    let state = app.state::<ClaudeProcess>();
+    let mut guard = state.0.lock().await;
+    let pc = guard.as_mut().ok_or("Claude session 未啟動")?;
+
+    pc.stdin.write_all(format!("{}\n", word_path).as_bytes()).await.map_err(|e| e.to_string())?;
+    pc.stdin.flush().await.map_err(|e| e.to_string())?;
+
+    while let Some(line) = pc.reader.next_line().await.map_err(|e| e.to_string())? {
+        if let Some(msg) = line.strip_prefix("DONE:") {
+            return Ok(msg.to_string());
+        } else if let Some(err) = line.strip_prefix("ERROR:") {
+            return Err(err.to_string());
+        }
+    }
+
+    Err("fix_speakers.py 意外結束".to_string())
+}
+
+#[tauri::command]
 fn get_config() -> Result<serde_json::Value, String> {
     let config_path = project_dir().join("config.json");
     if !config_path.exists() {
@@ -271,6 +316,7 @@ fn save_config(config: serde_json::Value) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(PracticeProcess(Mutex::new(None)))
+        .manage(ClaudeProcess(Mutex::new(None)))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -284,7 +330,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
                 download_audio, list_podcasts, list_untranscribed, list_transcribed,
                 transcribe_audio, get_config, save_config, get_lines,
-                start_practice, stop_practice, play_line
+                start_practice, stop_practice, play_line,
+                start_claude, stop_claude, fix_speakers
             ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
