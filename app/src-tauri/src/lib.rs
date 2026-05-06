@@ -96,11 +96,55 @@ async fn play_line(app: AppHandle, folder: String, index: i32) -> Result<serde_j
     Err("practice.py 意外結束".to_string())
 }
 
+#[derive(serde::Serialize)]
+struct TitleInfo {
+    title: String,
+    folder: String,
+}
+
 #[tauri::command]
-async fn download_audio(app: AppHandle, url: String) -> Result<String, String> {
-    let mut child = Command::new(python_path())
+async fn fetch_title(url: String) -> Result<TitleInfo, String> {
+    let output = Command::new(python_path())
         .arg("download.py")
+        .arg("--fetch-title")
         .arg(&url)
+        .current_dir(project_dir())
+        .output()
+        .await
+        .map_err(|e| format!("無法執行: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    let mut title = String::new();
+    let mut folder = String::new();
+
+    for line in stdout.lines() {
+        if let Some(t) = line.strip_prefix("TITLE:") {
+            title = t.to_string();
+        } else if let Some(f) = line.strip_prefix("FOLDER:") {
+            folder = f.to_string();
+        } else if let Some(err) = line.strip_prefix("ERROR:") {
+            return Err(err.to_string());
+        }
+    }
+
+    if title.is_empty() {
+        return Err(format!("無法取得標題\n{}", stderr));
+    }
+
+    Ok(TitleInfo { title, folder })
+}
+
+#[tauri::command]
+async fn download_audio(app: AppHandle, url: String, folder: Option<String>) -> Result<String, String> {
+    let mut cmd = Command::new(python_path());
+    cmd.arg("download.py").arg(&url);
+    if let Some(f) = &folder {
+        cmd.arg(f);
+    }
+
+    let mut child = cmd
         .current_dir(project_dir())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -328,7 +372,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-                download_audio, list_podcasts, list_untranscribed, list_transcribed,
+                fetch_title, download_audio, list_podcasts, list_untranscribed, list_transcribed,
                 transcribe_audio, get_config, save_config, get_lines,
                 start_practice, stop_practice, play_line,
                 start_claude, stop_claude, fix_speakers

@@ -10,6 +10,11 @@ function Download() {
     const [title, setTitle] = useState('')
     const [downloading, setDownloading] = useState(false)
     const [downloads, setDownloads] = useState([])
+    const [pendingTitle, setPendingTitle] = useState('')
+    const [folderName, setFolderName] = useState('')
+    const [fetching, setFetching] = useState(false)
+    const [showPending, setShowPending] = useState(true)
+    const [showDone, setShowDone] = useState(false)
     const loading = useLoading()
 
     const loadDownloads = async () => {
@@ -41,16 +46,33 @@ function Download() {
         }
     }, [])
 
-    const handleDownload = async () => {
+    const handleFetch = async () => {
         if (!url.trim()) return
+        setFetching(true)
+        setStatus('')
+        try {
+            const info = await invoke('fetch_title', { url: url.trim() })
+            setPendingTitle(info.title)
+            setFolderName(info.folder)
+        } catch (err) {
+            setStatus(`錯誤：${err}`)
+        } finally {
+            setFetching(false)
+        }
+    }
+
+    const handleConfirmDownload = async () => {
+        if (!folderName.trim()) return
         setDownloading(true)
         setStatus('')
         setProgress('準備中...')
         setTitle('')
         try {
-            const result = await invoke('download_audio', { url: url.trim() })
+            const result = await invoke('download_audio', { url: url.trim(), folder: folderName.trim() })
             setStatus(`下載完成：${result}`)
             setUrl('')
+            setPendingTitle('')
+            setFolderName('')
             loadDownloads()
         } catch (err) {
             setStatus(`錯誤：${err}`)
@@ -59,6 +81,11 @@ function Download() {
             setProgress('')
             setTitle('')
         }
+    }
+
+    const handleCancel = () => {
+        setPendingTitle('')
+        setFolderName('')
     }
 
     return (
@@ -71,17 +98,45 @@ function Download() {
                     placeholder="貼上 YouTube 連結..."
                     value={url}
                     onChange={(e) => setUrl(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleDownload()}
-                    disabled={downloading}
+                    onKeyDown={(e) => e.key === 'Enter' && handleFetch()}
+                    disabled={fetching || downloading || !!pendingTitle}
                 />
                 <button
                     className="px-6 py-2 bg-gray-800 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-700"
-                    onClick={handleDownload}
-                    disabled={downloading || !url.trim()}
+                    onClick={handleFetch}
+                    disabled={fetching || downloading || !url.trim() || !!pendingTitle}
                 >
-                    {downloading ? '下載中...' : '下載'}
+                    {fetching ? '取得中...' : '取得標題'}
                 </button>
             </div>
+
+            {pendingTitle && !downloading && (
+                <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <p className="text-sm text-amber-800 mb-2">原始標題：{pendingTitle}</p>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">資料夾名稱（可修改）</label>
+                    <input
+                        type="text"
+                        className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:border-gray-500 text-sm mb-3"
+                        value={folderName}
+                        onChange={(e) => setFolderName(e.target.value)}
+                    />
+                    <div className="flex gap-2">
+                        <button
+                            className="px-4 py-2 bg-gray-800 text-white text-sm rounded-lg hover:bg-gray-700 disabled:opacity-50"
+                            onClick={handleConfirmDownload}
+                            disabled={!folderName.trim()}
+                        >
+                            確認下載
+                        </button>
+                        <button
+                            className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+                            onClick={handleCancel}
+                        >
+                            取消
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {downloading && (
                 <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -111,31 +166,47 @@ function Download() {
             )}
 
             {downloads.filter(d => !d.transcribed).length > 0 && (
-                <>
-                    <h2 className="text-lg font-semibold mb-3">未轉譯</h2>
-                    <ul className="space-y-2 mb-6">
-                        {downloads.filter(d => !d.transcribed).map((d) => (
-                            <li key={d.name} className="px-4 py-3 bg-amber-50 rounded-lg border border-amber-200 text-sm flex items-center justify-between">
-                                <span>{d.name}</span>
-                                <span className="text-xs text-amber-600">待轉譯</span>
-                            </li>
-                        ))}
-                    </ul>
-                </>
+                <div className="mb-6">
+                    <button
+                        className="flex items-center gap-2 text-lg font-semibold mb-3 hover:text-gray-600"
+                        onClick={() => setShowPending(!showPending)}
+                    >
+                        <span className={`inline-block transition-transform ${showPending ? 'rotate-90' : ''}`}>▶</span>
+                        未轉譯 ({downloads.filter(d => !d.transcribed).length})
+                    </button>
+                    {showPending && (
+                        <ul className="space-y-2">
+                            {downloads.filter(d => !d.transcribed).map((d) => (
+                                <li key={d.name} className="px-4 py-3 bg-amber-50 rounded-lg border border-amber-200 text-sm flex items-center justify-between">
+                                    <span>{d.name}</span>
+                                    <span className="text-xs text-amber-600">待轉譯</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
             )}
 
             {downloads.filter(d => d.transcribed).length > 0 && (
-                <>
-                    <h2 className="text-lg font-semibold mb-3">已轉譯</h2>
-                    <ul className="space-y-2">
-                        {downloads.filter(d => d.transcribed).map((d) => (
-                            <li key={d.name} className="px-4 py-3 bg-green-50 rounded-lg border border-green-200 text-sm flex items-center justify-between">
-                                <span>{d.name}</span>
-                                <span className="text-xs text-green-600">已完成</span>
-                            </li>
-                        ))}
-                    </ul>
-                </>
+                <div>
+                    <button
+                        className="flex items-center gap-2 text-lg font-semibold mb-3 hover:text-gray-600"
+                        onClick={() => setShowDone(!showDone)}
+                    >
+                        <span className={`inline-block transition-transform ${showDone ? 'rotate-90' : ''}`}>▶</span>
+                        已轉譯 ({downloads.filter(d => d.transcribed).length})
+                    </button>
+                    {showDone && (
+                        <ul className="space-y-2">
+                            {downloads.filter(d => d.transcribed).map((d) => (
+                                <li key={d.name} className="px-4 py-3 bg-green-50 rounded-lg border border-green-200 text-sm flex items-center justify-between">
+                                    <span>{d.name}</span>
+                                    <span className="text-xs text-green-600">已完成</span>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
             )}
 
             {downloads.length === 0 && (

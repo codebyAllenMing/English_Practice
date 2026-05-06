@@ -32,13 +32,25 @@ def clean_title(title):
     return title
 
 
-def download(url):
+def fetch_title(url):
+    """只取得標題與建議的資料夾名稱，不下載"""
+    title = get_video_title(url)
+    folder_name = clean_title(title)
+    print(f"TITLE:{title}", flush=True)
+    print(f"FOLDER:{folder_name}", flush=True)
+
+
+def download(url, folder_name=None):
     start_time = time.time()
     log_info("download", f"開始下載: {url}")
 
     try:
-        title = get_video_title(url)
-        folder_name = clean_title(title)
+        if folder_name is None:
+            title = get_video_title(url)
+            folder_name = clean_title(title)
+        else:
+            title = folder_name
+
         folder_path = os.path.join(PODCASTS_DIR, folder_name)
 
         if os.path.exists(folder_path):
@@ -92,7 +104,17 @@ def download(url):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法：python3 download.py <YouTube URL>")
+        print("用法：python3 download.py <URL>")
+        print("      python3 download.py --fetch-title <URL>")
+        print("      python3 download.py <URL> <folder_name>")
         sys.exit(1)
 
-    download(sys.argv[1])
+    if sys.argv[1] == "--fetch-title":
+        if len(sys.argv) < 3:
+            print("用法：python3 download.py --fetch-title <URL>")
+            sys.exit(1)
+        fetch_title(sys.argv[2])
+    else:
+        url = sys.argv[1]
+        folder = sys.argv[2] if len(sys.argv) > 2 else None
+        download(url, folder)
