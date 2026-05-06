@@ -87,6 +87,8 @@ function Practice() {
         }
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
+        // deps 已涵蓋 handlePrev/Next/Repeat 實際讀取的 state；把它們本身加進來會每次 render 重綁
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selected, lines, currentIndex, playing, ready])
 
     if (!selected) {
@@ -185,7 +187,7 @@ function Practice() {
             </div>
 
             <p className="text-xs text-gray-400 text-center">
-                鍵盤：↑ 上一句　← 重複　↓/空白 下一句
+                鍵盤：↑ 上一句  ← 重複  ↓/空白 下一句
             </p>
 
             <div className="mt-6 max-h-[300px] overflow-y-auto" ref={listRef}>

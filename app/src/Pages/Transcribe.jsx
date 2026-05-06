@@ -17,10 +17,12 @@ function Transcribe() {
     }
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         loadFolders()
     }, [])
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         if (result) loadFolders()
     }, [result])
 

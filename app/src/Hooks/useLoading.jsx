@@ -29,6 +29,7 @@ export function LoadingProvider({ children }) {
     )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useLoading() {
     return useContext(LoadingContext)
 }

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useRef } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 
@@ -43,6 +43,7 @@ export function TranscribeProvider({ children }) {
     )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useTranscribe() {
     return useContext(TranscribeContext)
 }
