@@ -1,11 +1,11 @@
-import env_setup
+from core import env_setup  # noqa: F401
 import re
 import os
 import sys
 import time
 import subprocess
 import json
-from logger import log_info, log_error, log_exception
+from core.logger import log_info, log_error, log_exception
 
 PODCASTS_DIR = "podcasts"
 
@@ -104,14 +104,14 @@ def download(url, folder_name=None):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法：python3 download.py <URL>")
-        print("      python3 download.py --fetch-title <URL>")
-        print("      python3 download.py <URL> <folder_name>")
+        print("用法：python3 -m scripts.download <URL>")
+        print("      python3 -m scripts.download --fetch-title <URL>")
+        print("      python3 -m scripts.download <URL> <folder_name>")
         sys.exit(1)
 
     if sys.argv[1] == "--fetch-title":
         if len(sys.argv) < 3:
-            print("用法：python3 download.py --fetch-title <URL>")
+            print("用法：python3 -m scripts.download --fetch-title <URL>")
             sys.exit(1)
         fetch_title(sys.argv[2])
     else:

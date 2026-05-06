@@ -1,11 +1,11 @@
-import env_setup
+from core import env_setup  # noqa: F401
 import re
 import os
 import sys
 import json
 import time
 import subprocess
-from logger import log_info, log_error, log_exception
+from core.logger import log_info, log_error, log_exception
 
 PODCASTS_DIR = "podcasts"
 CONFIG_FILE = "config.json"
@@ -113,7 +113,7 @@ def transcribe(folder_name):
     fix_start = time.time()
     log_info("transcribe", f"[{folder_name}] 開始校正說話者")
     print("PROGRESS:校正說話者名字...", flush=True)
-    subprocess.run([sys.executable, "fix_speakers.py", word_path])
+    subprocess.run([sys.executable, "-m", "scripts.fix_speakers", word_path])
     fix_elapsed = time.time() - fix_start
     log_info("transcribe", f"[{folder_name}] 校正完成 (耗時 {fix_elapsed:.1f}s)")
 
@@ -126,7 +126,7 @@ def transcribe(folder_name):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法：python3 transcribe.py <folder_name>")
+        print("用法：python3 -m scripts.transcribe <folder_name>")
         sys.exit(1)
 
     transcribe(sys.argv[1])

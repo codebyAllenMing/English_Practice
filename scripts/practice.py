@@ -1,4 +1,4 @@
-import env_setup
+from core import env_setup  # noqa: F401
 import re
 import os
 import sys

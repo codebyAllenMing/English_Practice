@@ -1,8 +1,8 @@
-import env_setup
+from core import env_setup  # noqa: F401
 import sys
 import time
 import subprocess
-from logger import log_info, log_error, log_exception
+from core.logger import log_info, log_error, log_exception
 
 
 def fix_speakers(word_path):
@@ -42,7 +42,7 @@ def fix_speakers(word_path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("用法：python3 fix_speakers.py <word.txt 路徑>")
+        print("用法：python3 -m scripts.fix_speakers <word.txt 路徑>")
         sys.exit(1)
 
     fix_speakers(sys.argv[1])

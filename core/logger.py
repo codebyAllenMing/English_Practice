@@ -2,7 +2,7 @@ import os
 import traceback
 from datetime import datetime
 
-LOG_DIR = os.path.join(os.path.dirname(__file__), "logs")
+LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs")
 INFO_FILE = os.path.join(LOG_DIR, "info.log")
 ERROR_FILE = os.path.join(LOG_DIR, "error.log")
 

@@ -58,7 +58,7 @@ async fn start_practice(app: AppHandle) -> Result<(), String> {
     if guard.is_some() {
         return Ok(());
     }
-    let pc = spawn_persistent("practice.py").await?;
+    let pc = spawn_persistent("-m scripts.practice").await?;
     *guard = Some(pc);
     Ok(())
 }
@@ -93,7 +93,7 @@ async fn play_line(app: AppHandle, folder: String, index: i32) -> Result<serde_j
         }
     }
 
-    Err("practice.py 意外結束".to_string())
+    Err("scripts.practice 意外結束".to_string())
 }
 
 #[derive(serde::Serialize)]
@@ -105,7 +105,8 @@ struct TitleInfo {
 #[tauri::command]
 async fn fetch_title(url: String) -> Result<TitleInfo, String> {
     let output = Command::new(python_path())
-        .arg("download.py")
+        .arg("-m")
+        .arg("scripts.download")
         .arg("--fetch-title")
         .arg(&url)
         .current_dir(project_dir())
@@ -139,7 +140,7 @@ async fn fetch_title(url: String) -> Result<TitleInfo, String> {
 #[tauri::command]
 async fn download_audio(app: AppHandle, url: String, folder: Option<String>) -> Result<String, String> {
     let mut cmd = Command::new(python_path());
-    cmd.arg("download.py").arg(&url);
+    cmd.arg("-m").arg("scripts.download").arg(&url);
     if let Some(f) = &folder {
         cmd.arg(f);
     }
@@ -235,7 +236,8 @@ fn list_untranscribed() -> Result<Vec<String>, String> {
 #[tauri::command]
 async fn transcribe_audio(app: AppHandle, folder: String) -> Result<String, String> {
     let mut child = Command::new(python_path())
-        .arg("transcribe.py")
+        .arg("-m")
+        .arg("scripts.transcribe")
         .arg(&folder)
         .current_dir(project_dir())
         .stdout(std::process::Stdio::piped())
@@ -303,7 +305,7 @@ async fn start_claude(app: AppHandle) -> Result<(), String> {
     if guard.is_some() {
         return Ok(());
     }
-    let pc = spawn_persistent("fix_speakers.py --daemon").await?;
+    let pc = spawn_persistent("-m scripts.fix_speakers --daemon").await?;
     *guard = Some(pc);
     Ok(())
 }
@@ -336,7 +338,7 @@ async fn fix_speakers(app: AppHandle, word_path: String) -> Result<String, Strin
         }
     }
 
-    Err("fix_speakers.py 意外結束".to_string())
+    Err("scripts.fix_speakers 意外結束".to_string())
 }
 
 #[tauri::command]

@@ -40,9 +40,8 @@ app/src-tauri/target/
 app/dist/
 app/node_modules/
 
-# Podcast audio (only keep word.txt and json)
-podcasts/*/podcast.mp3
-podcasts/*/podcast.webm
+# Podcasts (download/transcribe output)
+podcasts/
 
 # Start script
 start.command
