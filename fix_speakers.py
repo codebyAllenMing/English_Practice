@@ -2,20 +2,20 @@ import env_setup
 import sys
 import time
 import subprocess
-from logger import log_error, log_exception
+from logger import log_info, log_error, log_exception
 
 
 def fix_speakers(word_path):
     start_time = time.time()
-    log_error("fix_speakers", f"開始校正: {word_path}")
+    log_info("fix_speakers", f"開始校正: {word_path}")
 
     try:
         result = subprocess.run([
             "claude", "-p",
-            f"讀取 {word_path}，根據對話內容判斷 SPEAKER_XX 對應的真實名字（例如從 'My name is Anna' 判斷），"
-            f"將所有 SPEAKER_XX 替換成對應的名字。如果無法判斷就保留原本的 SPEAKER_XX。"
-            f"同時修正明顯的文法或拼寫錯誤。直接修改檔案，不要輸出其他內容。",
+            f"讀取 {word_path}，把 SPEAKER_XX 替換成真實名字（從對話中判斷如 'My name is X'）。無法判斷的保留。直接修改檔案。",
             "--allowedTools", "Edit,Read,Write",
+            "--model", "haiku",
+            "--no-session-persistence",
         ], timeout=300, capture_output=True, text=True)
 
         elapsed = time.time() - start_time
@@ -25,7 +25,7 @@ def fix_speakers(word_path):
             print("ERROR:校正失敗", flush=True)
             return
 
-        log_error("fix_speakers", f"校正完成: {word_path} (耗時 {elapsed:.1f}s)")
+        log_info("fix_speakers", f"校正完成: {word_path} (耗時 {elapsed:.1f}s)")
         print(f"DONE:校正完成 ({elapsed:.1f}s)", flush=True)
 
     except subprocess.TimeoutExpired:

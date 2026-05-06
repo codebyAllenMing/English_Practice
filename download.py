@@ -2,9 +2,10 @@ import env_setup
 import re
 import os
 import sys
+import time
 import subprocess
 import json
-from logger import log_error, log_exception
+from logger import log_info, log_error, log_exception
 
 PODCASTS_DIR = "podcasts"
 
@@ -32,16 +33,21 @@ def clean_title(title):
 
 
 def download(url):
+    start_time = time.time()
+    log_info("download", f"開始下載: {url}")
+
     try:
         title = get_video_title(url)
         folder_name = clean_title(title)
         folder_path = os.path.join(PODCASTS_DIR, folder_name)
 
         if os.path.exists(folder_path):
+            log_error("download", f"資料夾已存在: {folder_name}")
             print(f"ERROR:資料夾已存在：{folder_name}", flush=True)
             sys.exit(1)
 
         os.makedirs(folder_path)
+        log_info("download", f"標題: {title}, 資料夾: {folder_name}")
 
         output_path = os.path.join(folder_path, "podcast.mp3")
         print(f"TITLE:{title}", flush=True)
@@ -65,12 +71,15 @@ def download(url):
                 print("PROGRESS:converting", flush=True)
 
         proc.wait()
+        elapsed = time.time() - start_time
+
         if proc.returncode != 0:
             detail = "\n".join(output_lines[-10:])
-            log_error("download", f"yt-dlp 下載失敗: {url}", detail)
+            log_error("download", f"yt-dlp 下載失敗 (耗時 {elapsed:.1f}s): {url}", detail)
             print("ERROR:下載失敗", flush=True)
             sys.exit(1)
 
+        log_info("download", f"下載完成: {folder_name} (耗時 {elapsed:.1f}s)")
         print(f"DONE:{output_path}", flush=True)
         return folder_path
     except SystemExit:

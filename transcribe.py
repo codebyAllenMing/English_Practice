@@ -3,8 +3,9 @@ import re
 import os
 import sys
 import json
+import time
 import subprocess
-from logger import log_error, log_exception
+from logger import log_info, log_error, log_exception
 
 PODCASTS_DIR = "podcasts"
 CONFIG_FILE = "config.json"
@@ -17,39 +18,15 @@ def load_config():
         return json.load(f)
 
 
-def detect_speaker_names(lines):
-    """從對話中抓 'My name is X' 或 'I'm X' 來對應說話者"""
-    patterns = [
-        r"[Mm]y name is (\w+)",
-        r"I'm (\w+)",
-        r"I am (\w+)",
-        r"[Cc]all me (\w+)",
-    ]
-    speaker_map = {}
-    for line in lines:
-        match_speaker = re.match(r'\[(\w+)\]:\s*(.*)', line)
-        if not match_speaker:
-            continue
-        speaker = match_speaker.group(1)
-        text = match_speaker.group(2)
-        if speaker in speaker_map:
-            continue
-        for pattern in patterns:
-            name_match = re.search(pattern, text)
-            if name_match:
-                name = name_match.group(1)
-                # 過濾掉太短或不像名字的
-                if len(name) >= 2 and name[0].isupper():
-                    speaker_map[speaker] = name
-                    break
-    return speaker_map
-
-
 def transcribe(folder_name):
+    start_time = time.time()
+    log_info("transcribe", f"開始轉譯: {folder_name}")
+
     config = load_config()
     hf_token = config.get("hf_token", "")
 
     if not hf_token:
+        log_error("transcribe", "未設定 HuggingFace Token")
         print("ERROR:請先設定 HuggingFace Token", flush=True)
         sys.exit(1)
 
@@ -57,9 +34,13 @@ def transcribe(folder_name):
     audio_path = os.path.join(folder_path, "podcast.mp3")
 
     if not os.path.exists(audio_path):
+        log_error("transcribe", f"找不到音檔: {audio_path}")
         print(f"ERROR:找不到音檔 {audio_path}", flush=True)
         sys.exit(1)
 
+    # Step 1: whisperx 轉譯
+    whisperx_start = time.time()
+    log_info("transcribe", f"[{folder_name}] whisperx 開始")
     print("PROGRESS:開始轉譯...", flush=True)
 
     proc = subprocess.Popen(
@@ -88,15 +69,20 @@ def transcribe(folder_name):
             print("PROGRESS:轉錄中...", flush=True)
 
     proc.wait()
+    whisperx_elapsed = time.time() - whisperx_start
+
     if proc.returncode != 0:
         detail = "\n".join(output_lines[-20:])
-        log_error("transcribe", f"whisperx 轉譯失敗: {folder_name}", detail)
+        log_error("transcribe", f"[{folder_name}] whisperx 失敗 (耗時 {whisperx_elapsed:.1f}s)", detail)
         print("ERROR:轉譯失敗", flush=True)
         sys.exit(1)
 
-    # 讀取 whisperx JSON 輸出，轉成 word.txt
+    log_info("transcribe", f"[{folder_name}] whisperx 完成 (耗時 {whisperx_elapsed:.1f}s)")
+
+    # Step 2: 產生 word.txt
     json_path = os.path.join(folder_path, "podcast.json")
     if not os.path.exists(json_path):
+        log_error("transcribe", f"[{folder_name}] 找不到轉譯結果 JSON")
         print("ERROR:找不到轉譯結果", flush=True)
         sys.exit(1)
 
@@ -116,14 +102,24 @@ def transcribe(folder_name):
     with open(word_path, "w") as f:
         f.write("\n".join(lines))
 
-    # 刪除 mp3
+    log_info("transcribe", f"[{folder_name}] word.txt 產生完成 ({len(lines)} 行)")
+
+    # Step 3: 刪除 mp3
     os.remove(audio_path)
     if os.path.exists(json_path):
         os.remove(json_path)
 
-    # 校正說話者名字
+    # Step 4: Claude CLI 校正說話者
+    fix_start = time.time()
+    log_info("transcribe", f"[{folder_name}] 開始校正說話者")
     print("PROGRESS:校正說話者名字...", flush=True)
     subprocess.run([sys.executable, "fix_speakers.py", word_path])
+    fix_elapsed = time.time() - fix_start
+    log_info("transcribe", f"[{folder_name}] 校正完成 (耗時 {fix_elapsed:.1f}s)")
+
+    # 總結
+    total_elapsed = time.time() - start_time
+    log_info("transcribe", f"[{folder_name}] 全部完成 (總耗時 {total_elapsed:.1f}s, whisperx {whisperx_elapsed:.1f}s, 校正 {fix_elapsed:.1f}s)")
 
     print(f"DONE:{word_path}", flush=True)
 

@@ -70,8 +70,11 @@ function Practice() {
     const handleRepeat = () => playAt(currentIndex)
 
     useEffect(() => {
-        if (lineRefs.current[currentIndex] && listRef.current) {
-            lineRefs.current[currentIndex].scrollIntoView({ behavior: 'smooth', block: 'start' })
+        const el = lineRefs.current[currentIndex]
+        const container = listRef.current
+        if (el && container) {
+            const offsetTop = el.offsetTop - container.offsetTop
+            container.scrollTo({ top: offsetTop, behavior: 'smooth' })
         }
     }, [currentIndex])
 
