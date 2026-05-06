@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { useLoading } from '../Hooks/useLoading'
 
 function Download() {
     const [url, setUrl] = useState('')
@@ -15,7 +14,6 @@ function Download() {
     const [fetching, setFetching] = useState(false)
     const [showPending, setShowPending] = useState(true)
     const [showDone, setShowDone] = useState(false)
-    const loading = useLoading()
 
     const loadDownloads = async () => {
         try {

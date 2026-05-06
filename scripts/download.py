@@ -4,7 +4,6 @@ import os
 import sys
 import time
 import subprocess
-import json
 from core.logger import log_info, log_error, log_exception
 
 PODCASTS_DIR = "podcasts"

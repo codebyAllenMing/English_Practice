@@ -18,7 +18,6 @@ fn python_path() -> PathBuf {
 }
 
 struct PracticeProcess(Mutex<Option<PersistentChild>>);
-struct ClaudeProcess(Mutex<Option<PersistentChild>>);
 
 struct PersistentChild {
     child: Child,
@@ -299,49 +298,6 @@ fn get_lines(folder: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-async fn start_claude(app: AppHandle) -> Result<(), String> {
-    let state = app.state::<ClaudeProcess>();
-    let mut guard = state.0.lock().await;
-    if guard.is_some() {
-        return Ok(());
-    }
-    let pc = spawn_persistent("-m scripts.fix_speakers --daemon").await?;
-    *guard = Some(pc);
-    Ok(())
-}
-
-#[tauri::command]
-async fn stop_claude(app: AppHandle) -> Result<(), String> {
-    let state = app.state::<ClaudeProcess>();
-    let mut guard = state.0.lock().await;
-    if let Some(mut pc) = guard.take() {
-        let _ = pc.stdin.write_all(b"QUIT\n").await;
-        let _ = pc.child.kill().await;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn fix_speakers(app: AppHandle, word_path: String) -> Result<String, String> {
-    let state = app.state::<ClaudeProcess>();
-    let mut guard = state.0.lock().await;
-    let pc = guard.as_mut().ok_or("Claude session 未啟動")?;
-
-    pc.stdin.write_all(format!("{}\n", word_path).as_bytes()).await.map_err(|e| e.to_string())?;
-    pc.stdin.flush().await.map_err(|e| e.to_string())?;
-
-    while let Some(line) = pc.reader.next_line().await.map_err(|e| e.to_string())? {
-        if let Some(msg) = line.strip_prefix("DONE:") {
-            return Ok(msg.to_string());
-        } else if let Some(err) = line.strip_prefix("ERROR:") {
-            return Err(err.to_string());
-        }
-    }
-
-    Err("scripts.fix_speakers 意外結束".to_string())
-}
-
-#[tauri::command]
 fn get_config() -> Result<serde_json::Value, String> {
     let config_path = project_dir().join("config.json");
     if !config_path.exists() {
@@ -362,7 +318,6 @@ fn save_config(config: serde_json::Value) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(PracticeProcess(Mutex::new(None)))
-        .manage(ClaudeProcess(Mutex::new(None)))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -376,8 +331,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
                 fetch_title, download_audio, list_podcasts, list_untranscribed, list_transcribed,
                 transcribe_audio, get_config, save_config, get_lines,
-                start_practice, stop_practice, play_line,
-                start_claude, stop_claude, fix_speakers
+                start_practice, stop_practice, play_line
             ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
