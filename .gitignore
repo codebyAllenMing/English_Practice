@@ -40,6 +40,10 @@ app/src-tauri/target/
 app/dist/
 app/node_modules/
 
+# 原生管線模型檔與 spike 建置產物
+models/
+spike/target/
+
 # Podcasts (download/transcribe output)
 podcasts/
 

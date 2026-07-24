@@ -1,0 +1,11 @@
+[package]
+name = "spike-transcribe"
+version = "0.1.0"
+edition = "2021"
+
+# 階段 3 原生轉譯管線的實驗 crate:whisper.cpp(Metal)ASR + sherpa-onnx diarization
+# 與 app 本體(app/src-tauri)完全獨立,驗證通過後才把邏輯搬進去
+
+[dependencies]
+whisper-rs = { version = "0.16", features = ["metal"] }
+sherpa-onnx = { version = "1.13.4", default-features = false, features = ["static"] }

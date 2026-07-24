@@ -5,6 +5,8 @@ use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager};
 
+pub mod native_transcribe;
+
 fn project_dir() -> PathBuf {
     let mut dir = std::env::current_dir().unwrap();
     while dir.file_name().map(|f| f != "English_Practice").unwrap_or(false) {
@@ -232,40 +234,6 @@ fn list_untranscribed() -> Result<Vec<String>, String> {
         .collect();
     list.sort();
     Ok(list)
-}
-
-#[tauri::command]
-async fn transcribe_audio(app: AppHandle, folder: String) -> Result<String, String> {
-    let mut child = Command::new(python_path())
-        .arg("-m")
-        .arg("scripts.transcribe")
-        .arg(&folder)
-        .current_dir(project_dir())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("無法執行: {}", e))?;
-
-    let stdout = child.stdout.take().unwrap();
-    let mut reader = BufReader::new(stdout).lines();
-    let mut result = String::new();
-
-    while let Some(line) = reader.next_line().await.map_err(|e| e.to_string())? {
-        if let Some(msg) = line.strip_prefix("PROGRESS:") {
-            let _ = app.emit("transcribe-progress", msg.to_string());
-        } else if let Some(path) = line.strip_prefix("DONE:") {
-            result = path.to_string();
-        } else if let Some(err) = line.strip_prefix("ERROR:") {
-            return Err(err.to_string());
-        }
-    }
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(result)
-    } else {
-        Err("轉譯失敗".to_string())
-    }
 }
 
 /// 與 core/logger.py 同格式寫入 logs/:[YYYY-mm-dd HH:MM:SS] [source] message
@@ -638,7 +606,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
                 fetch_title, download_audio, list_podcasts, list_untranscribed, list_transcribed,
-                transcribe_audio, correct_transcript, delete_podcast, get_config, save_config, get_lines,
+                native_transcribe::transcribe_audio, correct_transcript, delete_podcast, get_config, save_config, get_lines,
                 start_practice, stop_practice, play_line
             ])
         .run(tauri::generate_context!())

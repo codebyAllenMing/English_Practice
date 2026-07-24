@@ -67,6 +67,8 @@ def download(url, folder_name=None):
         proc = subprocess.Popen(
             ["yt-dlp", "-x", "--audio-format", "mp3",
              "--ffmpeg-location", "/opt/homebrew/bin",
+             # android vr client 會被 YouTube 回 403(2026-07 實測),固定用 default client
+             "--extractor-args", "youtube:player_client=default",
              "--newline", "-o", output_path, url],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
         )
@@ -87,6 +89,9 @@ def download(url, folder_name=None):
         if proc.returncode != 0:
             detail = "\n".join(output_lines[-10:])
             log_error("download", f"yt-dlp 下載失敗 (耗時 {elapsed:.1f}s): {url}", detail)
+            # 失敗時清掉剛建立的空資料夾,避免重試撞「資料夾已存在」
+            if os.path.isdir(folder_path) and not os.listdir(folder_path):
+                os.rmdir(folder_path)
             print("ERROR:下載失敗", flush=True)
             sys.exit(1)
 

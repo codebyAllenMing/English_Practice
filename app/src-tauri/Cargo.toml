@@ -7,6 +7,8 @@ license = ""
 repository = ""
 edition = "2021"
 rust-version = "1.77.2"
+# 有兩個 bin(app 本體 + native_test 測試工具),tauri dev 的 cargo run 需要明確預設
+default-run = "app"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -28,3 +30,6 @@ tokio = { version = "1", features = ["process", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # 本地時間戳,與 Python core/logger.py 的 log 格式一致
 chrono = "0.4"
+# 原生轉譯管線:whisper.cpp(Metal)ASR + sherpa-onnx speaker diarization(取代 whisperx)
+whisper-rs = { version = "0.16", features = ["metal"] }
+sherpa-onnx = { version = "1.13.4", default-features = false, features = ["static"] }

@@ -160,9 +160,37 @@
 
 | 階段 | 內容 | 狀態 |
 | --- | --- | --- |
-| **1. 拆步驟 + AI 校正 API 化** | 本文件 | ← 現在 |
-| 2. kokoro TTS → ONNX(sherpa-rs) | 第一次碰 FFI,範圍小 | 待 sherpa-rs 成熟度調查 |
-| 3. ASR + diarization → 原生(whisper.cpp / sherpa-onnx) | 最大塊;Metal 加速可大幅縮短 15~22 分鐘的轉譯時間;可能免去 HF token | 同上 |
+| **1. 拆步驟 + AI 校正 API 化** | 本文件 | 完成 ✅ |
+| 2. kokoro TTS → ONNX(**官方 sherpa-onnx crate**) | 第一次碰 FFI,範圍小 | 調查完成,可行 ✅(使用者表示 TTS 現況還好,順位往後) |
+| 3. ASR → **whisper-rs**(Metal);diarization → sherpa-onnx crate | 最大塊;**免 HF token** | **實作完成 ✅(2026-07-24)** |
+
+### 階段 3 實作紀錄(2026-07-24)
+
+- `app/src-tauri/src/native_transcribe.rs`:完整原生管線(ffmpeg 轉 16k wav → whisper 逐詞 → diarization → 逐詞掛講者 + 視窗多數決平滑 → 句級斷行 → word.raw.txt + word.txt)
+- `transcribe_audio` command 改指向原生版,**前端零改動**(沿用 `transcribe-progress` 事件,現在有真實百分比);`scripts/transcribe.py` 保留但已不被呼叫(rollback 用,穩定後可刪)
+- headless 測試:`cargo run --release --bin native_test <folder>`(src/bin/native_test.rs)
+- 端對端實測(Day 2 副本):**總耗時 199.4s vs whisperx 894.6s(4.5x)**,361 行,講者爭議 1.9%,與 spike 一致
+- config 新增可選 `diarization_threshold`(預設 1.0)
+- **HF token 不再需要**(轉譯設定裡的 HuggingFace Token 欄位已無作用,UI 待清)
+- 殘留待辦:diarization 試 model.int8.onnx 提速、平滑濾波對邊界 2 詞連跳無效(數字與未平滑相同,之後再調)、模型下載器(階段 4)
+
+### 階段 3 spike 實測(2026-07-24,Day 2 集,994s 音檔)
+
+- spike crate 在 `spike/`(獨立於 app),模型在 `models/`(皆已 gitignore);比對腳本在 session scratchpad `compare.py`
+- **速度**:whisper.cpp(Metal, large-v3-turbo q5_0)轉譯 **105s(9.5x 即時)** vs whisperx **894.6s** → 快 8.5 倍;diarization 127~158s(現為瓶頸,threads 加了沒明顯改善);全管線 233s vs 895s ≈ **3.8x**
+- **文字品質**:詞級相似度 0.989;**turbo 比 baseline(whisperx 預設 small)更好**——撿回 baseline 漏掉的兩整段、「Ginny」→正確的「Jenny」;差異僅 8 處(含 ten/10 等 cosmetic)
+- **講者歸屬**:段落級分配 3.7% 詞掛錯(全在換人邊界);**word 模式(token timestamps + 句尾標點斷行)降到 1.9%**,且只剩散落邊界詞,無整句掛錯
+- **diarization 調參**:titanet_small + FastClustering,threshold 預設 0.5 會爆 32 clusters;**threshold 1.0~1.1 → 3 位(接近真實 2)**;1.2 或 num_clusters=2 會崩成 1 位(勿用);過度切分經多數決映射後無害,但生產環境要餵 AI 校正,cluster 少較穩
+- **生產版待辦**:word-speaker 序列平滑濾波(孤立詞跟隨前後,收掉碎行)、diarization 提速(試 model.int8.onnx)、threshold 進 config
+- **結論:品質不輸反贏,速度大勝——階段 3 可行性確認 ✅**
+
+### 原生化調查結論(2026-07-24)
+
+- **sherpa-rs(社群 binding)已封存**——sherpa-onnx 官方出了 Rust API,直接用官方的
+- 官方 `sherpa-onnx` crate:1.13.4(2026-07-08),與主專案同版號發版;OfflineTts 支援 kokoro;diarization 用 pyannote-segmentation-3.0 ONNX(GitHub releases 下載,**不經 HF、免 token**);macOS arm64 prebuilt + 靜態連結
+- **ASR 不要用 sherpa-onnx**:whisper 錯字率高於 faster-whisper(issue #2900)、macOS CoreML 比 CPU 慢(issue #2910)
+- **ASR 用 whisper-rs**(whisper.cpp binding):活躍維護(2026-03)、`metal` feature 即有 Metal 加速,M 系列 large-v3 約 10x 即時速
+- 最終架構:ASR = whisper-rs(Metal)/ diarization + TTS = sherpa-onnx 官方 crate(CPU 即可,模型輕)
 | 4. 路徑改 Application Support、打包、簽名公證、CI | 發佈基礎建設 | |
 
 決策紀錄:目標是**履歷作品**;平台先 macOS(Apple Silicon);走原生路線(路線 B)已傾向確定,階段 1 完成後依 Rust 手感再確認階段 3 引擎選擇。

@@ -108,8 +108,7 @@ def transcribe(folder_name):
 
     log_info("transcribe", f"[{folder_name}] word.raw.txt / word.txt 產生完成 ({len(lines)} 行)")
 
-    # Step 3: 刪除 mp3
-    os.remove(audio_path)
+    # Step 3: 清理中間檔(mp3 保留:供日後重轉譯與原生管線對照)
     if os.path.exists(json_path):
         os.remove(json_path)
 
