@@ -23,6 +23,8 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
-tokio = { version = "1", features = ["process"] }
+tokio = { version = "1", features = ["process", "time"] }
 # rustls 而非系統 TLS:之後打包發佈不吃系統依賴
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# 本地時間戳,與 Python core/logger.py 的 log 格式一致
+chrono = "0.4"

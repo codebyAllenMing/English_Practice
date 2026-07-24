@@ -1,1 +1,56 @@
 @import "tailwindcss";
+
+/* dark variant 改用 .dark class 驅動(而非系統媒體查詢),由 theme.js 統一控制 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ── 色彩 tokens:亮色 ── */
+:root {
+	color-scheme: light;
+	--surface: #ffffff; /* 頁面底 */
+	--card: #f9fafb; /* 區塊底(原 gray-50) */
+	--muted: #f3f4f6; /* hover / 次要底(原 gray-100/200) */
+	--muted-strong: #d1d5db; /* switch off 底(原 gray-300) */
+	--edge: #e5e7eb; /* 邊框(原 gray-200) */
+	--edge-strong: #d1d5db; /* 邊框強(原 gray-300) */
+	--ink: #111827; /* 主文字(原 gray-900) */
+	--ink-soft: #4b5563; /* 次文字(原 gray-600/700) */
+	--ink-faint: #9ca3af; /* 弱文字(原 gray-400/500) */
+	--primary: #1f2937; /* 主按鈕(原 gray-800) */
+	--primary-hover: #374151;
+}
+
+/* ── 色彩 tokens:暗色 ── */
+.dark {
+	color-scheme: dark;
+	--surface: #111827;
+	--card: #1f2937;
+	--muted: #374151;
+	--muted-strong: #4b5563;
+	--edge: #374151;
+	--edge-strong: #4b5563;
+	--ink: #f3f4f6;
+	--ink-soft: #d1d5db;
+	--ink-faint: #6b7280;
+	--primary: #4b5563;
+	--primary-hover: #6b7280;
+}
+
+/* 映射為 Tailwind utilities:bg-surface / bg-card / text-ink / border-edge ... */
+@theme inline {
+	--color-surface: var(--surface);
+	--color-card: var(--card);
+	--color-muted: var(--muted);
+	--color-muted-strong: var(--muted-strong);
+	--color-edge: var(--edge);
+	--color-edge-strong: var(--edge-strong);
+	--color-ink: var(--ink);
+	--color-ink-soft: var(--ink-soft);
+	--color-ink-faint: var(--ink-faint);
+	--color-primary: var(--primary);
+	--color-primary-hover: var(--primary-hover);
+}
+
+body {
+	background: var(--surface);
+	color: var(--ink);
+}

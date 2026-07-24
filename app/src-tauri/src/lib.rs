@@ -268,6 +268,30 @@ async fn transcribe_audio(app: AppHandle, folder: String) -> Result<String, Stri
     }
 }
 
+/// 與 core/logger.py 同格式寫入 logs/:[YYYY-mm-dd HH:MM:SS] [source] message
+fn log_line(file: &str, source: &str, message: &str) {
+    let log_dir = project_dir().join("logs");
+    let _ = fs::create_dir_all(&log_dir);
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+    let line = format!("[{}] [{}] {}\n", timestamp, source, message);
+    if let Ok(mut f) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join(file))
+    {
+        use std::io::Write;
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
+fn log_info_line(source: &str, message: &str) {
+    log_line("info.log", source, message);
+}
+
+fn log_error_line(source: &str, message: &str) {
+    log_line("error.log", source, message);
+}
+
 #[derive(serde::Deserialize)]
 struct SpeakerRename {
     from: String,
@@ -286,11 +310,40 @@ struct Correction {
     fixes: Vec<LineFix>,
 }
 
-/// AI 校正:speaker 對照 + 逐行 ASR 錯字/標點修正,一次 API 呼叫完成。
+/// AI 校正:speaker 對照 + 逐行 ASR 錯字/標點修正,一次呼叫完成。
 /// 輸入永遠是 word.raw.txt(不修改),輸出覆寫 word.txt 並存 correction.json。
 #[tauri::command]
 async fn correct_transcript(folder: String) -> Result<serde_json::Value, String> {
-    let folder_path = project_dir().join("podcasts").join(&folder);
+    let start = std::time::Instant::now();
+    log_info_line("correct", &format!("開始校正: {}", folder));
+    match correct_transcript_inner(&folder).await {
+        Ok(res) => {
+            log_info_line(
+                "correct",
+                &format!(
+                    "[{}] 校正完成 (耗時 {:.1}s, mode {}, 說話者 {} 位, 修正 {} 行, 略過 {} 行)",
+                    folder,
+                    start.elapsed().as_secs_f32(),
+                    res["mode"].as_str().unwrap_or("?"),
+                    res["speakers"],
+                    res["fixes"],
+                    res["skipped"],
+                ),
+            );
+            Ok(res)
+        }
+        Err(e) => {
+            log_error_line(
+                "correct",
+                &format!("[{}] 校正失敗 (耗時 {:.1}s): {}", folder, start.elapsed().as_secs_f32(), e),
+            );
+            Err(e)
+        }
+    }
+}
+
+async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, String> {
+    let folder_path = project_dir().join("podcasts").join(folder);
     let raw_path = folder_path.join("word.raw.txt");
     let word_path = folder_path.join("word.txt");
 
@@ -302,12 +355,12 @@ async fn correct_transcript(folder: String) -> Result<serde_json::Value, String>
         fs::copy(&word_path, &raw_path).map_err(|e| format!("建立 word.raw.txt 失敗: {}", e))?;
     }
 
-    let api_key = fs::read_to_string(project_dir().join("config.json"))
+    let config: serde_json::Value = fs::read_to_string(project_dir().join("config.json"))
         .ok()
-        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
-        .and_then(|v| v["anthropic_api_key"].as_str().map(|s| s.to_string()))
-        .filter(|k| !k.is_empty())
-        .ok_or("請先在設定填入 Anthropic API Key")?;
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    // 校正模式:"api"(Anthropic API,key 計費)或 "cli"(本機 Claude CLI,吃訂閱額度)
+    let mode = config["correction_mode"].as_str().unwrap_or("api").to_string();
 
     let raw_text = fs::read_to_string(&raw_path).map_err(|e| format!("讀取 word.raw.txt 失敗: {}", e))?;
     let mut lines: Vec<String> = raw_text.lines().map(|l| l.to_string()).collect();
@@ -335,10 +388,71 @@ async fn correct_transcript(folder: String) -> Result<serde_json::Value, String>
         - Do NOT rephrase, do NOT fix grammar the speaker actually said, do NOT remove filler words, \
         do NOT merge or split lines.\n\
         - Only include lines that actually need a change.\n\n\
+        Respond with ONLY a JSON object of the shape \
+        {{\"speakers\": [{{\"from\": \"SPEAKER_00\", \"to\": \"Name\"}}], \
+        \"fixes\": [{{\"line\": 1, \"text\": \"[SPEAKER_00]: corrected line\"}}]}} \
+        — no markdown fences, no explanations.\n\n\
         Transcript:\n{}",
         numbered
     );
 
+    let result_text = if mode == "cli" {
+        correct_via_cli(&prompt).await?
+    } else {
+        let api_key = config["anthropic_api_key"]
+            .as_str()
+            .filter(|k| !k.is_empty())
+            .ok_or("請先在設定填入 Anthropic API Key(或切換為本機 Claude CLI 模式)")?;
+        correct_via_api(api_key, &prompt).await?
+    };
+
+    let parsed: serde_json::Value = serde_json::from_str(extract_json(&result_text))
+        .map_err(|e| format!("解析校正結果失敗: {}", e))?;
+    let correction: Correction = serde_json::from_value(parsed.clone())
+        .map_err(|e| format!("校正結果格式不符: {}", e))?;
+
+    // 套逐行修正(行號 1-based,越界丟棄)
+    let mut skipped = 0;
+    for fix in &correction.fixes {
+        if fix.line >= 1 && (fix.line as usize) <= lines.len() {
+            lines[(fix.line - 1) as usize] = fix.text.clone();
+        } else {
+            skipped += 1;
+        }
+    }
+
+    // 套 speaker 名字(只替換行首的 [LABEL]: 前綴)
+    for sp in &correction.speakers {
+        if sp.from == sp.to {
+            continue;
+        }
+        let from_prefix = format!("[{}]:", sp.from);
+        let to_prefix = format!("[{}]:", sp.to);
+        for line in lines.iter_mut() {
+            if line.starts_with(&from_prefix) {
+                *line = line.replacen(&from_prefix, &to_prefix, 1);
+            }
+        }
+    }
+
+    fs::write(&word_path, lines.join("\n")).map_err(|e| format!("寫入 word.txt 失敗: {}", e))?;
+    let record = serde_json::json!({ "mode": mode, "result": parsed });
+    fs::write(
+        folder_path.join("correction.json"),
+        serde_json::to_string_pretty(&record).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("寫入 correction.json 失敗: {}", e))?;
+
+    Ok(serde_json::json!({
+        "speakers": correction.speakers.len(),
+        "fixes": correction.fixes.len(),
+        "skipped": skipped,
+        "mode": mode,
+    }))
+}
+
+/// Anthropic API 路徑:structured outputs 強制 JSON 回傳
+async fn correct_via_api(api_key: &str, prompt: &str) -> Result<String, String> {
     let body = serde_json::json!({
         "model": "claude-haiku-4-5",
         "max_tokens": 8192,
@@ -383,7 +497,7 @@ async fn correct_transcript(folder: String) -> Result<serde_json::Value, String>
 
     let resp = reqwest::Client::new()
         .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", &api_key)
+        .header("x-api-key", api_key)
         .header("anthropic-version", "2023-06-01")
         .json(&body)
         .send()
@@ -404,51 +518,60 @@ async fn correct_transcript(folder: String) -> Result<serde_json::Value, String>
         return Err("校正結果超過輸出上限,結果不完整,未套用".to_string());
     }
 
-    let text = resp_json["content"]
+    resp_json["content"]
         .as_array()
         .and_then(|blocks| blocks.iter().find(|b| b["type"] == "text"))
         .and_then(|b| b["text"].as_str())
-        .ok_or("API 回應缺少文字內容")?;
+        .map(|s| s.to_string())
+        .ok_or_else(|| "API 回應缺少文字內容".to_string())
+}
 
-    let correction: Correction =
-        serde_json::from_str(text).map_err(|e| format!("解析校正結果失敗: {}", e))?;
-
-    // 套逐行修正(行號 1-based,越界丟棄)
-    let mut skipped = 0;
-    for fix in &correction.fixes {
-        if fix.line >= 1 && (fix.line as usize) <= lines.len() {
-            lines[(fix.line - 1) as usize] = fix.text.clone();
-        } else {
-            skipped += 1;
-        }
-    }
-
-    // 套 speaker 名字(只替換行首的 [LABEL]: 前綴)
-    for sp in &correction.speakers {
-        if sp.from == sp.to {
-            continue;
-        }
-        let from_prefix = format!("[{}]:", sp.from);
-        let to_prefix = format!("[{}]:", sp.to);
-        for line in lines.iter_mut() {
-            if line.starts_with(&from_prefix) {
-                *line = line.replacen(&from_prefix, &to_prefix, 1);
-            }
-        }
-    }
-
-    fs::write(&word_path, lines.join("\n")).map_err(|e| format!("寫入 word.txt 失敗: {}", e))?;
-    fs::write(
-        folder_path.join("correction.json"),
-        serde_json::to_string_pretty(&resp_json).map_err(|e| e.to_string())?,
+/// 本機 Claude CLI 路徑:單次 print 呼叫(無 agentic loop、不給工具),吃使用者登入的訂閱額度
+async fn correct_via_cli(prompt: &str) -> Result<String, String> {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(300),
+        Command::new("claude")
+            .args(["-p", prompt, "--model", "haiku", "--no-session-persistence"])
+            .current_dir(project_dir())
+            .output(),
     )
-    .map_err(|e| format!("寫入 correction.json 失敗: {}", e))?;
+    .await
+    .map_err(|_| "Claude CLI 逾時(300 秒)".to_string())?
+    .map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            "找不到 claude CLI,請確認已安裝並登入,或到設定切換為 Anthropic API 模式".to_string()
+        } else {
+            format!("無法執行 claude CLI: {}", e)
+        }
+    })?;
 
-    Ok(serde_json::json!({
-        "speakers": correction.speakers.len(),
-        "fixes": correction.fixes.len(),
-        "skipped": skipped,
-    }))
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("Claude CLI 失敗: {}", stderr.chars().take(300).collect::<String>()));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// 模型輸出可能帶 markdown fence 或前後綴文字,取第一個 '{' 到最後一個 '}'
+fn extract_json(text: &str) -> &str {
+    match (text.find('{'), text.rfind('}')) {
+        (Some(s), Some(e)) if e > s => &text[s..=e],
+        _ => text,
+    }
+}
+
+/// 刪除整個 podcast 資料夾(音檔/逐字稿/校正紀錄一併移除)
+#[tauri::command]
+fn delete_podcast(folder: String) -> Result<(), String> {
+    // 防路徑跳脫:只接受單層資料夾名
+    if folder.is_empty() || folder.contains('/') || folder.contains('\\') || folder.contains("..") {
+        return Err("無效的資料夾名稱".to_string());
+    }
+    let dir = project_dir().join("podcasts").join(&folder);
+    if !dir.is_dir() {
+        return Err("找不到資料夾".to_string());
+    }
+    fs::remove_dir_all(&dir).map_err(|e| format!("刪除失敗: {}", e))
 }
 
 #[tauri::command]
@@ -515,7 +638,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
                 fetch_title, download_audio, list_podcasts, list_untranscribed, list_transcribed,
-                transcribe_audio, correct_transcript, get_config, save_config, get_lines,
+                transcribe_audio, correct_transcript, delete_podcast, get_config, save_config, get_lines,
                 start_practice, stop_practice, play_line
             ])
         .run(tauri::generate_context!())

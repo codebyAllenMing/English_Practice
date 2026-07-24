@@ -1,7 +1,11 @@
 # Plan:拆步驟 — 轉譯與 AI 校正分離 + API 化(階段 1)
 
-> 建立日:2026-07-24。狀態:**已實作(2026-07-24),待實測**——cargo check / py_compile / eslint 皆過;
-> 剩餘驗證:實際跑一次 AI 校正(需在設定填 Anthropic API Key)+ 校正後練習播放確認。
+> 建立日:2026-07-24。狀態:**已實作,CLI 模式實測通過(2026-07-24)**。
+> CLI 模式實測:30-Day_Day_1 集,57.8s,SPEAKER_02→Jenny 共 112 行(舊 fix_speakers 漏掉的),套用/相容/log 全正常。
+> CLI 慢的原因:`claude -p` 仍載入完整 Claude Code 環境,單發呼叫省不掉冷啟動。
+> **待辦:API 模式實測**——Console 買 credits 在原瀏覽器卡 Stripe 表單(按鈕灰),Safari 可以,key 還沒開。
+> 拿到 key 後:設定切 API 模式 → 對同一集「重新校正」→ 比對 log 耗時(預估 3~5s vs CLI 57.8s)。
+> 後續追加的 UI:校正獨立分頁、設定 iOS switch + 分頁範圍設定、密碼眼睛、刪除(dialog 確認)、Rust 端 log。
 > 這是「給別人用 / 履歷專案」重構的第一階段。整體 roadmap 見文末。
 
 ## 背景與動機
@@ -44,6 +48,15 @@
 - 已轉譯 = `word.txt` 存在(不變,沿用現有邏輯)
 - 已校正 = `correction.json` 存在
 - 重跑校正 = 刪 `correction.json` 重按,或直接重按(覆寫)
+
+## 設計變更(2026-07-24 實作時追加)
+
+- **獨立「校正」分頁**:導覽列 下載|轉譯|校正|練習;下載頁的校正 UI 保留不動,兩邊共用同一狀態
+- **雙模式校正**(使用者要求保留本機路徑):config `correction_mode` = `"api"`(預設)| `"cli"`
+  - `api`:Anthropic API + structured outputs(給別人用的正路)
+  - `cli`:本機 `claude -p` 單次呼叫(**無 agentic loop、不給工具**,同一套 prompt 回 JSON 本地套用,吃訂閱額度)——自用免費,發佈版之後可隱藏此選項
+  - 兩路徑共用 prompt / JSON 解析(`extract_json` 容錯 markdown fence)/ 套用邏輯;`correction.json` 記錄 `mode`
+  - Settings 有 radio 切換;校正頁顯示目前模式徽章
 
 ## AI 呼叫設計(Rust 端,取代 fix_speakers.py)
 

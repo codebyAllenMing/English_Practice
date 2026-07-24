@@ -1,29 +1,40 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { applyTheme, watchSystemTheme } from './theme'
 import Download from './Pages/Download'
 import Transcribe from './Pages/Transcribe'
+import Correct from './Pages/Correct'
 import Practice from './Pages/Practice'
 import Settings from './Components/Settings'
 
 function App() {
     const [showSettings, setShowSettings] = useState(false)
 
+    useEffect(() => {
+        applyTheme()
+        return watchSystemTheme()
+    }, [])
+
     return (
         <BrowserRouter>
-            <nav className="flex items-center px-6 py-4 border-b border-gray-200 bg-gray-50">
+            <div className="h-screen flex flex-col">
+            <nav className="flex items-center px-6 py-4 border-b border-edge bg-card shrink-0">
                 <div className="flex gap-4 flex-1">
-                    <NavLink to="/" className={({ isActive }) => `px-4 py-2 rounded-md text-sm ${isActive ? 'bg-gray-200 text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
+                    <NavLink to="/" className={({ isActive }) => `px-4 py-2 rounded-md text-sm ${isActive ? 'bg-muted text-ink font-bold' : 'text-ink-faint hover:text-ink-soft'}`}>
                         下載
                     </NavLink>
-                    <NavLink to="/transcribe" className={({ isActive }) => `px-4 py-2 rounded-md text-sm ${isActive ? 'bg-gray-200 text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
+                    <NavLink to="/transcribe" className={({ isActive }) => `px-4 py-2 rounded-md text-sm ${isActive ? 'bg-muted text-ink font-bold' : 'text-ink-faint hover:text-ink-soft'}`}>
                         轉譯
                     </NavLink>
-                    <NavLink to="/practice" className={({ isActive }) => `px-4 py-2 rounded-md text-sm ${isActive ? 'bg-gray-200 text-gray-900 font-bold' : 'text-gray-500 hover:text-gray-700'}`}>
+                    <NavLink to="/correct" className={({ isActive }) => `px-4 py-2 rounded-md text-sm ${isActive ? 'bg-muted text-ink font-bold' : 'text-ink-faint hover:text-ink-soft'}`}>
+                        校正
+                    </NavLink>
+                    <NavLink to="/practice" className={({ isActive }) => `px-4 py-2 rounded-md text-sm ${isActive ? 'bg-muted text-ink font-bold' : 'text-ink-faint hover:text-ink-soft'}`}>
                         練習
                     </NavLink>
                 </div>
                 <button
-                    className="p-2 text-gray-400 hover:text-gray-600 rounded-md hover:bg-gray-100"
+                    className="p-2 text-ink-faint hover:text-ink-soft rounded-md hover:bg-muted"
                     onClick={() => setShowSettings(true)}
                     title="設定"
                 >
@@ -33,13 +44,15 @@ function App() {
                     </svg>
                 </button>
             </nav>
-            <main className="p-6">
+            <main className="p-6 flex-1 overflow-y-auto">
                 <Routes>
                     <Route path="/" element={<Download />} />
                     <Route path="/transcribe" element={<Transcribe />} />
+                    <Route path="/correct" element={<Correct />} />
                     <Route path="/practice" element={<Practice />} />
                 </Routes>
             </main>
+            </div>
             {showSettings && <Settings onClose={() => setShowSettings(false)} />}
         </BrowserRouter>
     )
