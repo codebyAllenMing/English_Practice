@@ -37,7 +37,8 @@ def generate_audio(folder_name, line_index):
         return
 
     line = lines[line_index]
-    match = re.match(r'\[(\w+)\]:\s*(.*)', line)
+    # [^\]]+ 而非 \w+:校正後的名字可能含空白(如 Mary Ann)
+    match = re.match(r'\[([^\]]+)\]:\s*(.*)', line)
     if match:
         speaker = match.group(1)
         text = match.group(2)

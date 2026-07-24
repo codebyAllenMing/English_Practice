@@ -179,6 +179,7 @@ async fn download_audio(app: AppHandle, url: String, folder: Option<String>) -> 
 struct PodcastInfo {
     name: String,
     transcribed: bool,
+    corrected: bool,
 }
 
 #[tauri::command]
@@ -198,6 +199,7 @@ fn list_podcasts() -> Result<Vec<PodcastInfo>, String> {
             Some(PodcastInfo {
                 name: entry.file_name().to_string_lossy().to_string(),
                 transcribed: dir.join("word.txt").exists(),
+                corrected: dir.join("correction.json").exists(),
             })
         })
         .collect();
@@ -266,6 +268,189 @@ async fn transcribe_audio(app: AppHandle, folder: String) -> Result<String, Stri
     }
 }
 
+#[derive(serde::Deserialize)]
+struct SpeakerRename {
+    from: String,
+    to: String,
+}
+
+#[derive(serde::Deserialize)]
+struct LineFix {
+    line: i64,
+    text: String,
+}
+
+#[derive(serde::Deserialize)]
+struct Correction {
+    speakers: Vec<SpeakerRename>,
+    fixes: Vec<LineFix>,
+}
+
+/// AI 校正:speaker 對照 + 逐行 ASR 錯字/標點修正,一次 API 呼叫完成。
+/// 輸入永遠是 word.raw.txt(不修改),輸出覆寫 word.txt 並存 correction.json。
+#[tauri::command]
+async fn correct_transcript(folder: String) -> Result<serde_json::Value, String> {
+    let folder_path = project_dir().join("podcasts").join(&folder);
+    let raw_path = folder_path.join("word.raw.txt");
+    let word_path = folder_path.join("word.txt");
+
+    // 舊資料相容:沒有 word.raw.txt 就從現有 word.txt 建一份
+    if !raw_path.exists() {
+        if !word_path.exists() {
+            return Err("找不到逐字稿,請先轉譯".to_string());
+        }
+        fs::copy(&word_path, &raw_path).map_err(|e| format!("建立 word.raw.txt 失敗: {}", e))?;
+    }
+
+    let api_key = fs::read_to_string(project_dir().join("config.json"))
+        .ok()
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+        .and_then(|v| v["anthropic_api_key"].as_str().map(|s| s.to_string()))
+        .filter(|k| !k.is_empty())
+        .ok_or("請先在設定填入 Anthropic API Key")?;
+
+    let raw_text = fs::read_to_string(&raw_path).map_err(|e| format!("讀取 word.raw.txt 失敗: {}", e))?;
+    let mut lines: Vec<String> = raw_text.lines().map(|l| l.to_string()).collect();
+
+    let numbered = lines
+        .iter()
+        .enumerate()
+        .map(|(i, l)| format!("{}|{}", i + 1, l))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let prompt = format!(
+        "Below is a podcast transcript. Each line is prefixed with its 1-based line number followed by '|'. \
+        Lines have the format \"[SPEAKER_XX]: text\".\n\n\
+        Do two things:\n\
+        1. speakers: determine each speaker's real name from the dialogue (introductions like \"My name is ...\", \
+        or speakers addressing each other). Output one entry per label you can confidently rename, mapping the \
+        original label (e.g. SPEAKER_00) to the real name. Omit labels you cannot determine. \
+        Names must not contain '[', ']' or ':'.\n\
+        2. fixes: find lines containing obvious speech-to-text errors (misheard words, broken punctuation) and \
+        output the corrected full line. 'line' is the line number; 'text' is the complete replacement line \
+        WITHOUT the number prefix but INCLUDING the original \"[SPEAKER_XX]: \" prefix unchanged.\n\n\
+        Strict rules for fixes:\n\
+        - Only fix obviously mis-transcribed words and punctuation.\n\
+        - Do NOT rephrase, do NOT fix grammar the speaker actually said, do NOT remove filler words, \
+        do NOT merge or split lines.\n\
+        - Only include lines that actually need a change.\n\n\
+        Transcript:\n{}",
+        numbered
+    );
+
+    let body = serde_json::json!({
+        "model": "claude-haiku-4-5",
+        "max_tokens": 8192,
+        "output_config": {
+            "format": {
+                "type": "json_schema",
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "speakers": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "from": { "type": "string" },
+                                    "to": { "type": "string" }
+                                },
+                                "required": ["from", "to"],
+                                "additionalProperties": false
+                            }
+                        },
+                        "fixes": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "line": { "type": "integer" },
+                                    "text": { "type": "string" }
+                                },
+                                "required": ["line", "text"],
+                                "additionalProperties": false
+                            }
+                        }
+                    },
+                    "required": ["speakers", "fixes"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "messages": [{ "role": "user", "content": prompt }]
+    });
+
+    let resp = reqwest::Client::new()
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", &api_key)
+        .header("anthropic-version", "2023-06-01")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("API 連線失敗: {}", e))?;
+
+    let status = resp.status();
+    let resp_json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("讀取 API 回應失敗: {}", e))?;
+
+    if !status.is_success() {
+        let msg = resp_json["error"]["message"].as_str().unwrap_or("未知錯誤");
+        return Err(format!("API 錯誤 ({}): {}", status.as_u16(), msg));
+    }
+    if resp_json["stop_reason"] == "max_tokens" {
+        return Err("校正結果超過輸出上限,結果不完整,未套用".to_string());
+    }
+
+    let text = resp_json["content"]
+        .as_array()
+        .and_then(|blocks| blocks.iter().find(|b| b["type"] == "text"))
+        .and_then(|b| b["text"].as_str())
+        .ok_or("API 回應缺少文字內容")?;
+
+    let correction: Correction =
+        serde_json::from_str(text).map_err(|e| format!("解析校正結果失敗: {}", e))?;
+
+    // 套逐行修正(行號 1-based,越界丟棄)
+    let mut skipped = 0;
+    for fix in &correction.fixes {
+        if fix.line >= 1 && (fix.line as usize) <= lines.len() {
+            lines[(fix.line - 1) as usize] = fix.text.clone();
+        } else {
+            skipped += 1;
+        }
+    }
+
+    // 套 speaker 名字(只替換行首的 [LABEL]: 前綴)
+    for sp in &correction.speakers {
+        if sp.from == sp.to {
+            continue;
+        }
+        let from_prefix = format!("[{}]:", sp.from);
+        let to_prefix = format!("[{}]:", sp.to);
+        for line in lines.iter_mut() {
+            if line.starts_with(&from_prefix) {
+                *line = line.replacen(&from_prefix, &to_prefix, 1);
+            }
+        }
+    }
+
+    fs::write(&word_path, lines.join("\n")).map_err(|e| format!("寫入 word.txt 失敗: {}", e))?;
+    fs::write(
+        folder_path.join("correction.json"),
+        serde_json::to_string_pretty(&resp_json).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("寫入 correction.json 失敗: {}", e))?;
+
+    Ok(serde_json::json!({
+        "speakers": correction.speakers.len(),
+        "fixes": correction.fixes.len(),
+        "skipped": skipped,
+    }))
+}
+
 #[tauri::command]
 fn list_transcribed() -> Result<Vec<String>, String> {
     let podcasts_dir = project_dir().join("podcasts");
@@ -330,7 +515,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
                 fetch_title, download_audio, list_podcasts, list_untranscribed, list_transcribed,
-                transcribe_audio, get_config, save_config, get_lines,
+                transcribe_audio, correct_transcript, get_config, save_config, get_lines,
                 start_practice, stop_practice, play_line
             ])
         .run(tauri::generate_context!())

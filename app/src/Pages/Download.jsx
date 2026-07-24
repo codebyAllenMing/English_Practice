@@ -14,6 +14,9 @@ function Download() {
     const [fetching, setFetching] = useState(false)
     const [showPending, setShowPending] = useState(true)
     const [showDone, setShowDone] = useState(false)
+    const [hasApiKey, setHasApiKey] = useState(false)
+    const [correcting, setCorrecting] = useState('')
+    const [correctStatus, setCorrectStatus] = useState('')
 
     const loadDownloads = async () => {
         try {
@@ -24,8 +27,25 @@ function Download() {
         }
     }
 
+    const handleCorrect = async (name) => {
+        setCorrecting(name)
+        setCorrectStatus('')
+        try {
+            const res = await invoke('correct_transcript', { folder: name })
+            setCorrectStatus(`校正完成:${name}(說話者 ${res.speakers} 位、修正 ${res.fixes} 行)`)
+            loadDownloads()
+        } catch (err) {
+            setCorrectStatus(`錯誤:${err}`)
+        } finally {
+            setCorrecting('')
+        }
+    }
+
     useEffect(() => {
         loadDownloads()
+        invoke('get_config')
+            .then((config) => setHasApiKey(!!config.anthropic_api_key))
+            .catch(console.error)
 
         const unlistenProgress = listen('download-progress', (e) => {
             if (e.payload === 'converting') {
@@ -194,12 +214,45 @@ function Download() {
                         <span className={`inline-block transition-transform ${showDone ? 'rotate-90' : ''}`}>▶</span>
                         已轉譯 ({downloads.filter(d => d.transcribed).length})
                     </button>
+                    {correctStatus && (
+                        <p className={`text-sm mb-3 ${correctStatus.startsWith('錯誤') ? 'text-red-500' : 'text-green-600'}`}>
+                            {correctStatus}
+                        </p>
+                    )}
                     {showDone && (
                         <ul className="space-y-2">
                             {downloads.filter(d => d.transcribed).map((d) => (
-                                <li key={d.name} className="px-4 py-3 bg-green-50 rounded-lg border border-green-200 text-sm flex items-center justify-between">
-                                    <span>{d.name}</span>
-                                    <span className="text-xs text-green-600">已完成</span>
+                                <li key={d.name} className="px-4 py-3 bg-green-50 rounded-lg border border-green-200 text-sm flex items-center justify-between gap-3">
+                                    <span className="flex-1">{d.name}</span>
+                                    {correcting === d.name ? (
+                                        <span className="flex items-center gap-2 text-xs text-blue-600 shrink-0">
+                                            <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24" fill="none">
+                                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                            </svg>
+                                            校正中...
+                                        </span>
+                                    ) : d.corrected ? (
+                                        <span className="flex items-center gap-2 shrink-0">
+                                            <span className="text-xs text-purple-600">✨ 已校正</span>
+                                            <button
+                                                className="text-xs text-gray-400 hover:text-gray-600 underline disabled:opacity-50"
+                                                onClick={() => handleCorrect(d.name)}
+                                                disabled={!!correcting || !hasApiKey}
+                                            >
+                                                重新校正
+                                            </button>
+                                        </span>
+                                    ) : (
+                                        <button
+                                            className="px-3 py-1 text-xs bg-purple-600 text-white rounded-md hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                                            onClick={() => handleCorrect(d.name)}
+                                            disabled={!!correcting || !hasApiKey}
+                                            title={hasApiKey ? '用 AI 校正說話者名字與錯字' : '請先在設定填入 Anthropic API Key'}
+                                        >
+                                            AI 校正
+                                        </button>
+                                    )}
                                 </li>
                             ))}
                         </ul>

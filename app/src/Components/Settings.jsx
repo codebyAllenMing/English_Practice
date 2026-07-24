@@ -3,18 +3,20 @@ import { invoke } from '@tauri-apps/api/core'
 
 function Settings({ onClose }) {
     const [token, setToken] = useState('')
+    const [apiKey, setApiKey] = useState('')
     const [saved, setSaved] = useState(false)
 
     useEffect(() => {
         invoke('get_config').then((config) => {
             setToken(config.hf_token || '')
+            setApiKey(config.anthropic_api_key || '')
         })
     }, [])
 
     const handleSave = async () => {
         try {
             const config = await invoke('get_config')
-            await invoke('save_config', { config: { ...config, hf_token: token } })
+            await invoke('save_config', { config: { ...config, hf_token: token, anthropic_api_key: apiKey } })
             setSaved(true)
             setTimeout(() => setSaved(false), 2000)
         } catch (err) {
@@ -41,6 +43,15 @@ function Settings({ onClose }) {
                     placeholder="hf_..."
                     value={token}
                     onChange={(e) => setToken(e.target.value)}
+                />
+
+                <label className="block text-sm font-medium text-gray-700 mb-2">Anthropic API Key(AI 校正用)</label>
+                <input
+                    type="password"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg outline-none focus:border-gray-500 text-sm mb-4"
+                    placeholder="sk-ant-..."
+                    value={apiKey}
+                    onChange={(e) => setApiKey(e.target.value)}
                 />
 
                 <div className="flex items-center justify-end gap-3">

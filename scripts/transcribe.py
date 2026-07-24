@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import time
+import shutil
 import subprocess
 from core.logger import log_info, log_error, log_exception
 
@@ -97,28 +98,24 @@ def transcribe(folder_name):
         if text:
             lines.append(f"[{speaker}]: {text}")
 
+    # word.raw.txt 為原始逐字稿(永不修改),word.txt 為練習實際讀的檔
+    # AI 校正(Rust 端 correct_transcript)以 raw 為輸入、覆寫 word.txt
+    word_raw_path = os.path.join(folder_path, "word.raw.txt")
     word_path = os.path.join(folder_path, "word.txt")
-    with open(word_path, "w") as f:
+    with open(word_raw_path, "w") as f:
         f.write("\n".join(lines))
+    shutil.copyfile(word_raw_path, word_path)
 
-    log_info("transcribe", f"[{folder_name}] word.txt 產生完成 ({len(lines)} 行)")
+    log_info("transcribe", f"[{folder_name}] word.raw.txt / word.txt 產生完成 ({len(lines)} 行)")
 
     # Step 3: 刪除 mp3
     os.remove(audio_path)
     if os.path.exists(json_path):
         os.remove(json_path)
 
-    # Step 4: Claude CLI 校正說話者
-    fix_start = time.time()
-    log_info("transcribe", f"[{folder_name}] 開始校正說話者")
-    print("PROGRESS:校正說話者名字...", flush=True)
-    subprocess.run([sys.executable, "-m", "scripts.fix_speakers", word_path])
-    fix_elapsed = time.time() - fix_start
-    log_info("transcribe", f"[{folder_name}] 校正完成 (耗時 {fix_elapsed:.1f}s)")
-
     # 總結
     total_elapsed = time.time() - start_time
-    log_info("transcribe", f"[{folder_name}] 全部完成 (總耗時 {total_elapsed:.1f}s, whisperx {whisperx_elapsed:.1f}s, 校正 {fix_elapsed:.1f}s)")
+    log_info("transcribe", f"[{folder_name}] 全部完成 (總耗時 {total_elapsed:.1f}s, whisperx {whisperx_elapsed:.1f}s)")
 
     print(f"DONE:{word_path}", flush=True)
 
