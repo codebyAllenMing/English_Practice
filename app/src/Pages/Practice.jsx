@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { useLoading } from '../Hooks/useLoading'
+import VoiceDialog from '../Components/VoiceDialog'
 
 // 講者 tag 色盤:依出場順序輪流分配,同名固定同色
 const SPEAKER_COLORS = [
@@ -23,6 +24,7 @@ function Practice() {
     const [error, setError] = useState('')
     const [ready, setReady] = useState(false)
     const [fontSize, setFontSize] = useState(24)
+    const [voiceFolder, setVoiceFolder] = useState('')
     const audioRef = useRef(null)
     const listRef = useRef(null)
     const lineRefs = useRef([])
@@ -182,11 +184,19 @@ function Practice() {
                                     >
                                         📄 文字
                                     </button>
+                                    <button
+                                        className="px-2 py-1.5 text-xs text-ink-soft border border-edge-strong rounded-md hover:bg-muted shrink-0"
+                                        onClick={() => setVoiceFolder(name)}
+                                        title="聲音設定"
+                                    >
+                                        🔊
+                                    </button>
                                 </div>
                             </div>
                         ))}
                     </div>
                 )}
+                {voiceFolder && <VoiceDialog folder={voiceFolder} onClose={() => setVoiceFolder('')} />}
             </div>
         )
     }

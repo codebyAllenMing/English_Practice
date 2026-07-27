@@ -41,12 +41,11 @@ function SecretInput({ value, onChange, placeholder }) {
     )
 }
 
-// section:未指定 = 完整設定;"transcribe" = 只顯示轉譯相關;"correct" = 只顯示校正相關
+// section:未指定 = 完整設定;"correct" = 只顯示校正相關
+// (轉譯已原生化、不需 HF token,原 "transcribe" 區塊已移除)
 function Settings({ onClose, section }) {
-    const showTranscribe = !section || section === 'transcribe'
     const showCorrect = !section || section === 'correct'
-    const title = section === 'transcribe' ? '轉譯設定' : section === 'correct' ? '校正設定' : '設定'
-    const [token, setToken] = useState('')
+    const title = section === 'correct' ? '校正設定' : '設定'
     const [apiKey, setApiKey] = useState('')
     const [correctionMode, setCorrectionMode] = useState('api')
     const [themePref, setThemePrefState] = useState(getThemePref())
@@ -60,7 +59,6 @@ function Settings({ onClose, section }) {
 
     useEffect(() => {
         invoke('get_config').then((config) => {
-            setToken(config.hf_token || '')
             setApiKey(config.anthropic_api_key || '')
             setCorrectionMode(config.correction_mode || 'api')
         })
@@ -70,7 +68,7 @@ function Settings({ onClose, section }) {
         try {
             const config = await invoke('get_config')
             await invoke('save_config', {
-                config: { ...config, hf_token: token, anthropic_api_key: apiKey, correction_mode: correctionMode },
+                config: { ...config, anthropic_api_key: apiKey, correction_mode: correctionMode },
             })
             // 通知其他頁面(如校正頁的模式徽章)重讀 config
             window.dispatchEvent(new Event('config-saved'))
@@ -107,17 +105,6 @@ function Settings({ onClose, section }) {
                                 </button>
                             ))}
                         </div>
-                    </>
-                )}
-
-                {showTranscribe && (
-                    <>
-                        <label className="block text-sm font-medium text-ink-soft mb-2">HuggingFace Token</label>
-                        <SecretInput
-                            placeholder="hf_..."
-                            value={token}
-                            onChange={(e) => setToken(e.target.value)}
-                        />
                     </>
                 )}
 
