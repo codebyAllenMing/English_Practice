@@ -117,6 +117,8 @@ pub fn run_download(
 		}
 	};
 
+	// folder_name 可能來自使用者在 UI 手動編輯,同樣要擋路徑跳脫
+	crate::validate_folder(&folder_name)?;
 	let folder_path = data_dir().join("podcasts").join(&folder_name);
 	if folder_path.exists() {
 		log_error_line("download", &format!("資料夾已存在: {}", folder_name));

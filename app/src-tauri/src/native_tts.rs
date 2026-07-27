@@ -117,6 +117,7 @@ pub async fn play_line(
 	folder: String,
 	index: i32,
 ) -> Result<serde_json::Value, String> {
+	crate::validate_folder(&folder)?;
 	let state = app.state::<TtsState>();
 	let mut guard = state.0.lock().await;
 	let engine = guard.as_mut().ok_or("練習模式未啟動")?;
@@ -215,12 +216,14 @@ fn read_json(path: &std::path::Path) -> Option<serde_json::Value> {
 /// 每集的手動聲音指定(voices.json);不存在時回空物件
 #[tauri::command]
 pub fn get_voices(folder: String) -> Result<serde_json::Value, String> {
+	crate::validate_folder(&folder)?;
 	let path = data_dir().join("podcasts").join(&folder).join("voices.json");
 	Ok(read_json(&path).unwrap_or_else(|| serde_json::json!({})))
 }
 
 #[tauri::command]
 pub fn save_voices(folder: String, voices: serde_json::Value) -> Result<(), String> {
+	crate::validate_folder(&folder)?;
 	let path = data_dir().join("podcasts").join(&folder).join("voices.json");
 	std::fs::write(&path, serde_json::to_string_pretty(&voices).map_err(|e| e.to_string())?)
 		.map_err(|e| format!("寫入 voices.json 失敗: {}", e))

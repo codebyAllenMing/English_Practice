@@ -38,6 +38,91 @@ pub(crate) fn data_dir() -> &'static PathBuf {
     })
 }
 
+/// 防路徑跳脫:所有收 folder 參數的 command 只接受單層資料夾名
+pub(crate) fn validate_folder(folder: &str) -> Result<(), String> {
+    if folder.is_empty() || folder.contains('/') || folder.contains('\\') || folder.contains("..") {
+        return Err("無效的資料夾名稱".to_string());
+    }
+    Ok(())
+}
+
+/// ── Keychain:API key 不落地明文 ──
+/// 走 /usr/bin/security(Apple 簽名的穩定工具):dev 重編 binary 不會觸發重新授權;
+/// 代價是寫入瞬間 key 出現在該次 security process 的 argv(本機單人環境可接受)
+const KEYCHAIN_SERVICE: &str = "com.allenming.english-practice";
+const KEYCHAIN_API_KEY_ACCOUNT: &str = "anthropic_api_key";
+
+fn keychain_get(account: &str) -> Option<String> {
+    let output = std::process::Command::new("/usr/bin/security")
+        .args(["find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account, "-w"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if value.is_empty() { None } else { Some(value) }
+}
+
+fn keychain_set(account: &str, value: &str) -> Result<(), String> {
+    let output = std::process::Command::new("/usr/bin/security")
+        .args(["add-generic-password", "-U", "-s", KEYCHAIN_SERVICE, "-a", account, "-w", value])
+        .output()
+        .map_err(|e| format!("無法執行 security: {}", e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("寫入 Keychain 失敗: {}", String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+fn keychain_delete(account: &str) {
+    let _ = std::process::Command::new("/usr/bin/security")
+        .args(["delete-generic-password", "-s", KEYCHAIN_SERVICE, "-a", account])
+        .output();
+}
+
+/// 讀 config.json 並疊上 Keychain 的機密欄位;順手做一次性搬遷(舊版檔案內的明文 key → Keychain)
+fn load_config_merged() -> serde_json::Value {
+    let config_path = data_dir().join("config.json");
+    let mut config: serde_json::Value = fs::read_to_string(&config_path)
+        .ok()
+        .and_then(|c| serde_json::from_str(&c).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    if let Some(key) = config["anthropic_api_key"]
+        .as_str()
+        .filter(|k| !k.is_empty())
+        .map(|s| s.to_string())
+    {
+        if keychain_set(KEYCHAIN_API_KEY_ACCOUNT, &key).is_ok() {
+            if let Some(obj) = config.as_object_mut() {
+                obj.remove("anthropic_api_key");
+            }
+            let _ = write_config_file(&config);
+            log_info_line("config", "anthropic_api_key 已搬遷至 Keychain");
+        }
+    }
+
+    if let Some(key) = keychain_get(KEYCHAIN_API_KEY_ACCOUNT) {
+        config["anthropic_api_key"] = serde_json::Value::String(key);
+    }
+    config
+}
+
+/// 寫 config.json 並收緊權限(600,僅本人可讀寫)
+fn write_config_file(config: &serde_json::Value) -> Result<(), String> {
+    let config_path = data_dir().join("config.json");
+    let content = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+    fs::write(&config_path, content).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600));
+    }
+    Ok(())
+}
+
 /// 外部 CLI 尋找:PATH 之外補上 Homebrew(arm64/Intel)路徑——
 /// 從 Finder 啟動的 .app 拿不到 shell 的 PATH
 pub(crate) fn find_tool(name: &str) -> Option<PathBuf> {
@@ -188,6 +273,7 @@ struct Correction {
 /// 輸入永遠是 word.raw.txt(不修改),輸出覆寫 word.txt 並存 correction.json。
 #[tauri::command]
 async fn correct_transcript(folder: String) -> Result<serde_json::Value, String> {
+    validate_folder(&folder)?;
     let _guard = try_begin_task("校正", &folder)?;
     let start = std::time::Instant::now();
     log_info_line("correct", &format!("開始校正: {}", folder));
@@ -230,10 +316,7 @@ async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, Str
         fs::copy(&word_path, &raw_path).map_err(|e| format!("建立 word.raw.txt 失敗: {}", e))?;
     }
 
-    let config: serde_json::Value = fs::read_to_string(data_dir().join("config.json"))
-        .ok()
-        .and_then(|c| serde_json::from_str(&c).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
+    let config = load_config_merged();
     // 校正模式:"api"(Anthropic API,key 計費)或 "cli"(本機 Claude CLI,吃訂閱額度)
     let mode = config["correction_mode"].as_str().unwrap_or("api").to_string();
 
@@ -446,10 +529,7 @@ fn extract_json(text: &str) -> &str {
 /// 刪除整個 podcast 資料夾(音檔/逐字稿/校正紀錄一併移除)
 #[tauri::command]
 fn delete_podcast(folder: String) -> Result<(), String> {
-    // 防路徑跳脫:只接受單層資料夾名
-    if folder.is_empty() || folder.contains('/') || folder.contains('\\') || folder.contains("..") {
-        return Err("無效的資料夾名稱".to_string());
-    }
+    validate_folder(&folder)?;
     let dir = data_dir().join("podcasts").join(&folder);
     if !dir.is_dir() {
         return Err("找不到資料夾".to_string());
@@ -483,6 +563,7 @@ fn list_transcribed() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn get_lines(folder: String) -> Result<Vec<String>, String> {
+    validate_folder(&folder)?;
     let word_path = data_dir().join("podcasts").join(&folder).join("word.txt");
     let content = fs::read_to_string(&word_path).map_err(|e| e.to_string())?;
     Ok(content.lines().filter(|l| !l.trim().is_empty()).map(|l| l.to_string()).collect())
@@ -490,19 +571,22 @@ fn get_lines(folder: String) -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn get_config() -> Result<serde_json::Value, String> {
-    let config_path = data_dir().join("config.json");
-    if !config_path.exists() {
-        return Ok(serde_json::json!({}));
-    }
-    let content = fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&content).map_err(|e| e.to_string())
+    Ok(load_config_merged())
 }
 
 #[tauri::command]
-fn save_config(config: serde_json::Value) -> Result<(), String> {
-    let config_path = data_dir().join("config.json");
-    let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
-    fs::write(&config_path, content).map_err(|e| e.to_string())
+fn save_config(mut config: serde_json::Value) -> Result<(), String> {
+    // 機密欄位進 Keychain,不寫進檔案;清空 = 從 Keychain 移除
+    let key = config["anthropic_api_key"].as_str().unwrap_or("").to_string();
+    if let Some(obj) = config.as_object_mut() {
+        obj.remove("anthropic_api_key");
+    }
+    if key.is_empty() {
+        keychain_delete(KEYCHAIN_API_KEY_ACCOUNT);
+    } else {
+        keychain_set(KEYCHAIN_API_KEY_ACCOUNT, &key)?;
+    }
+    write_config_file(&config)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

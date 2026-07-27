@@ -36,3 +36,5 @@ whisper-rs = { version = "0.16", features = ["metal"] }
 sherpa-onnx = { version = "1.13.4", default-features = false, features = ["static"] }
 # play_line 回傳的 WAV 以 base64 內嵌 JSON(沿用 practice.py 合約)
 base64 = "0.22"
+# 模型下載完整性驗證(SHA256)
+sha2 = "0.10"

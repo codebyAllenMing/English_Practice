@@ -211,7 +211,16 @@
 - ✅ **步驟 2:路徑抽象**——`data_dir()`(OnceLock):debug 建置 = 專案根(開發資料不搬家)、release = `~/Library/Application Support/com.allenming.english-practice`;`init_data_dir()` 供 native_test 覆寫;`find_tool()` 統一找外部 CLI(PATH + Homebrew arm64/Intel 路徑)
 - ✅ **步驟 3:模型下載器**——`native_models.rs`:四模型 manifest(whisper/segmentation/titanet/kokoro,共 ~1GB 下載量)、reqwest 串流 + 進度事件(model-progress,每 3MB)、tar.bz2 用 /usr/bin/tar 解(零新 crate)、marker 檔驗證;前端 `ModelSetup.jsx` 啟動檢查彈窗(App.jsx 掛載,模型齊全不顯示);headless 實測通過(File + TarBz2 兩路徑)
 - ✅ **步驟 4:外部工具引導**——`tools_status` command + Download 頁缺件 banner(顯示 brew install 指令);「內嵌 binary」留到打包時再評估
-- 待辦:⑤ tauri build + 簽名公證(需 Apple Developer 帳號,使用者暫緩)+ CI
+- 待辦:⑤ tauri build + 簽名公證(需 Apple Developer 帳號,使用者暫緩;無帳號替代:發佈附 SHA256 checksum)+ CI
+
+### 安全補強(2026-07-28)
+
+- **API key → macOS Keychain**:經 `/usr/bin/security` CLI(零新依賴;accessor 是 Apple 簽名工具,dev 重編不觸發重授權)。`save_config` 攔截 `anthropic_api_key` 入 Keychain(service `com.allenming.english-practice`),`get_config`/校正走 `load_config_merged()` 疊回;檔案內舊明文 key 首次讀取自動搬遷。config.json 同時 chmod 600,已清掉無用的 hf_token 與空 key
+- **模型 SHA256 驗證**:ModelSpec 加 `sha256`(驗 marker 檔,tar 解開後驗;不符即清除落地物);sha2 crate
+- **validate_folder()**:防路徑跳脫,掛上所有收 folder 的 command(先前只有 delete_podcast 有擋)
+- **CSP**:tauri.conf.json 從 null 改為嚴格白名單(media-src data:/blob: 供 TTS 音訊、ws://localhost:5173 供 dev HMR)
+- **依賴稽核**:npm audit fix 後 vite 8.1.5;殘留 7 項評估為不適用(brace-expansion 在 eslint 樹內=dev only;react-router CSRF 僅 RSC/server actions 模式,本地 SPA 無此面)。cargo-audit(--locked 安裝):quick-xml 7.5 high ×2,tauri→plist 釘版無法本地升,且無不可信 XML 輸入路徑,記錄待 tauri 上游;22 條 unmaintained 警告多為 Linux GTK 綁定(macOS 未用)
+- 已知取捨:security CLI 寫入瞬間 key 現於 argv(本機單人可接受);正式簽名後可改 Security.framework(keyring crate)消除
 - 附帶:AI 校正 prompt 改為「每位講者都回報一筆(含 gender)」——修正已具名講者時 speakers 回空陣列、gender 記不到的問題
 
 決策紀錄:目標是**履歷作品**;平台先 macOS(Apple Silicon);走原生路線(路線 B)已傾向確定,階段 1 完成後依 Rust 手感再確認階段 3 引擎選擇。

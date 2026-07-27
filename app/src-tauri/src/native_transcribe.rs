@@ -35,6 +35,7 @@ struct Word {
 
 #[tauri::command]
 pub async fn transcribe_audio(app: tauri::AppHandle, folder: String) -> Result<String, String> {
+	crate::validate_folder(&folder)?;
 	let _guard = crate::try_begin_task("轉譯", &folder)?;
 	let progress_app = app.clone();
 	tokio::task::spawn_blocking(move || {
