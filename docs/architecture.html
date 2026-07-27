@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>English Practice — 架構與流程</title>
+<style>
+	:root {
+		--surface: #fafafa;
+		--card: #ffffff;
+		--edge: #e4e4e7;
+		--ink: #18181b;
+		--ink-soft: #52525b;
+		--ink-faint: #a1a1aa;
+		--primary: #2563eb;
+		--rust: #ce4a1f;
+		--react: #0891b2;
+		--ok: #16a34a;
+		--warn: #d97706;
+		--purple: #9333ea;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--surface: #111113;
+			--card: #1b1b1f;
+			--edge: #2e2e33;
+			--ink: #f4f4f5;
+			--ink-soft: #b8b8c0;
+			--ink-faint: #6b6b74;
+			--primary: #60a5fa;
+			--rust: #f0764a;
+			--react: #22d3ee;
+			--ok: #4ade80;
+			--warn: #fbbf24;
+			--purple: #c084fc;
+		}
+	}
+	* { margin: 0; padding: 0; box-sizing: border-box; }
+	body {
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+		background: var(--surface);
+		color: var(--ink);
+		line-height: 1.6;
+		padding: 48px 24px 80px;
+	}
+	.wrap { max-width: 980px; margin: 0 auto; }
+	h1 { font-size: 28px; margin-bottom: 4px; }
+	.subtitle { color: var(--ink-soft); margin-bottom: 16px; }
+	.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 48px; }
+	.badge {
+		font-size: 12px; padding: 3px 10px; border-radius: 999px;
+		border: 1px solid var(--edge); background: var(--card); color: var(--ink-soft);
+	}
+	h2 {
+		font-size: 20px; margin: 56px 0 6px;
+		padding-left: 12px; border-left: 4px solid var(--primary);
+	}
+	.desc { color: var(--ink-soft); font-size: 14px; margin-bottom: 20px; }
+
+	/* ── 分層架構 ── */
+	.layer {
+		background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+		padding: 16px 20px; margin-bottom: 0;
+	}
+	.layer-title { font-size: 13px; font-weight: 700; letter-spacing: 0.05em; margin-bottom: 10px; }
+	.layer-title .tech { font-weight: 400; color: var(--ink-faint); margin-left: 8px; }
+	.boxes { display: flex; flex-wrap: wrap; gap: 8px; }
+	.box {
+		flex: 1 1 130px; border: 1px solid var(--edge); border-radius: 8px;
+		padding: 8px 12px; font-size: 13px; background: var(--surface);
+	}
+	.box b { display: block; font-size: 13px; }
+	.box span { color: var(--ink-faint); font-size: 12px; }
+	.arrow-row {
+		text-align: center; color: var(--ink-faint); font-size: 12px;
+		padding: 6px 0; display: flex; align-items: center; justify-content: center; gap: 10px;
+	}
+	.arrow-row::before, .arrow-row::after { content: ""; flex: 0 0 80px; border-top: 1px dashed var(--edge); }
+	/* 各層 box 跟隨該層主題色(半透明,明暗主題皆適用) */
+	.t-react .layer-title { color: var(--react); }
+	.t-react .box { background: rgba(6, 182, 212, 0.10); border-color: rgba(6, 182, 212, 0.38); }
+	.t-rust .layer-title { color: var(--rust); }
+	.t-rust .box { background: rgba(234, 88, 12, 0.10); border-color: rgba(234, 88, 12, 0.38); }
+	.t-ext .layer-title { color: var(--warn); }
+	.t-ext .box { background: rgba(217, 119, 6, 0.10); border-color: rgba(217, 119, 6, 0.38); }
+	.t-data .layer-title { color: var(--ok); }
+	.t-data .box { background: rgba(22, 163, 74, 0.10); border-color: rgba(22, 163, 74, 0.38); }
+
+	/* ── 流程圖 ── */
+	.pipeline {
+		background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+		padding: 18px 20px; margin-bottom: 16px;
+	}
+	.pipeline h3 { font-size: 15px; margin-bottom: 12px; }
+	.pipeline h3 .time {
+		font-size: 12px; font-weight: 400; color: var(--ok);
+		border: 1px solid currentColor; border-radius: 999px; padding: 1px 8px; margin-left: 8px;
+	}
+	.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; }
+	.step {
+		flex: 1 1 110px; min-width: 110px; border: 1px solid var(--edge); border-radius: 8px;
+		padding: 8px 10px; font-size: 12.5px; background: var(--surface);
+		display: flex; flex-direction: column; justify-content: center;
+	}
+	.step b { font-size: 13px; }
+	.step span { color: var(--ink-faint); font-size: 11.5px; }
+	.step.hl { border-color: var(--primary); }
+	.flow .sep {
+		align-self: center; color: var(--ink-faint); font-size: 14px; padding: 0 2px; flex: 0 0 auto;
+	}
+	.note { font-size: 12.5px; color: var(--ink-soft); margin-top: 10px; }
+	.note code {
+		font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px;
+		background: var(--surface); border: 1px solid var(--edge); border-radius: 4px; padding: 0 4px;
+	}
+
+	/* ── 表格 ── */
+	table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 12px; overflow: hidden; }
+	th, td { text-align: left; padding: 10px 16px; font-size: 14px; border-bottom: 1px solid var(--edge); }
+	th { font-size: 13px; color: var(--ink-soft); background: var(--card); }
+	tr:last-child td { border-bottom: none; }
+	td.num { font-variant-numeric: tabular-nums; }
+	.up { color: var(--ok); font-weight: 600; }
+
+	/* ── 卡片組 ── */
+	.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+	.card {
+		background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 16px 20px;
+	}
+	.card h3 { font-size: 15px; margin-bottom: 8px; }
+	.card ul { padding-left: 18px; font-size: 13.5px; color: var(--ink-soft); }
+	.card li { margin-bottom: 4px; }
+	.prio { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+	.prio .p {
+		border: 1px solid var(--edge); border-left: 3px solid var(--purple);
+		border-radius: 6px; padding: 6px 10px; font-size: 13px; background: var(--surface);
+	}
+	.prio .p span { color: var(--ink-faint); font-size: 12px; display: block; }
+	footer { margin-top: 64px; text-align: center; color: var(--ink-faint); font-size: 12.5px; }
+	@media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+	<h1>English Practice</h1>
+	<p class="subtitle">YouTube Podcast 聽力練習桌面應用 — 全原生離線推論管線(macOS Apple Silicon)</p>
+	<div class="badges">
+		<span class="badge">Tauri 2</span>
+		<span class="badge">Rust</span>
+		<span class="badge">React 19 + Vite + Tailwind v4</span>
+		<span class="badge">whisper.cpp(Metal)</span>
+		<span class="badge">sherpa-onnx(diarization / kokoro TTS)</span>
+		<span class="badge">Anthropic API(structured outputs)</span>
+	</div>
+
+	<h2>系統架構</h2>
+	<p class="desc">四層結構:前端只負責 UI 與狀態,所有重活(下載、推論、合成)都在 Rust 原生層 in-process 完成,不依賴 Python 環境。</p>
+
+	<div class="layer t-react">
+		<div class="layer-title">FRONTEND<span class="tech">React 19 · Vite · Tailwind v4(明暗主題 token 化)</span></div>
+		<div class="boxes">
+			<div class="box"><b>下載</b><span>取標題 → 確認資料夾 → 進度條</span></div>
+			<div class="box"><b>轉譯</b><span>真實百分比進度</span></div>
+			<div class="box"><b>校正</b><span>模式徽章 · 待/已校正分組</span></div>
+			<div class="box"><b>練習</b><span>逐句 TTS · 純文字閱讀 · 🔊 聲音設定</span></div>
+			<div class="box"><b>全域狀態</b><span>TranscribeProvider · CorrectionProvider(切頁不遺失)</span></div>
+			<div class="box"><b>初始化</b><span>ModelSetup 模型下載彈窗 · 工具檢查 banner</span></div>
+		</div>
+	</div>
+	<div class="arrow-row">▲▼ Tauri IPC:commands + events(transcribe-progress / download-progress / model-progress / correction-done)</div>
+	<div class="layer t-rust">
+		<div class="layer-title">RUST CORE<span class="tech">Tauri 2 · tokio · 全 in-process 推論</span></div>
+		<div class="boxes">
+			<div class="box"><b>native_download</b><span>spawn yt-dlp · 標題清洗 · 失敗回滾</span></div>
+			<div class="box"><b>native_transcribe</b><span>whisper-rs(Metal)+ pyannote diarization</span></div>
+			<div class="box"><b>correct</b><span>Anthropic API / claude CLI 雙模式</span></div>
+			<div class="box"><b>native_tts</b><span>kokoro ONNX · 三層選聲</span></div>
+			<div class="box"><b>native_models</b><span>模型下載器 · SHA256 驗證</span></div>
+			<div class="box"><b>infra</b><span>data_dir · TaskGuard 防重入 · Keychain · logs</span></div>
+		</div>
+	</div>
+	<div class="arrow-row">▲▼</div>
+	<div class="layer t-ext">
+		<div class="layer-title">EXTERNAL</div>
+		<div class="boxes">
+			<div class="box"><b>yt-dlp / ffmpeg</b><span>外部 CLI(Homebrew)</span></div>
+			<div class="box"><b>Metal GPU</b><span>whisper.cpp 加速</span></div>
+			<div class="box"><b>Anthropic API</b><span>claude-haiku-4-5 · JSON schema 強制輸出</span></div>
+			<div class="box"><b>GitHub / HF Releases</b><span>模型來源(免 HF token)</span></div>
+			<div class="box"><b>macOS Keychain</b><span>API key 不落地明文</span></div>
+		</div>
+	</div>
+	<div class="arrow-row">▲▼</div>
+	<div class="layer t-data">
+		<div class="layer-title">DATA<span class="tech">dev = 專案根 · release = ~/Library/Application Support</span></div>
+		<div class="boxes">
+			<div class="box"><b>podcasts/&lt;集&gt;/</b><span>podcast.mp3 · word.raw.txt(不可變)· word.txt · correction.json · voices.json</span></div>
+			<div class="box"><b>models/</b><span>whisper q5_0 574MB · pyannote 6MB · titanet 40MB · kokoro 393MB</span></div>
+			<div class="box"><b>config.json</b><span>非機密設定(600 權限)</span></div>
+			<div class="box"><b>logs/</b><span>info.log · error.log</span></div>
+		</div>
+	</div>
+
+	<h2>核心流程</h2>
+	<p class="desc">三條管線各自獨立、可重跑;word.raw.txt 是轉譯的不可變產出,校正永遠以它為輸入,保證冪等。</p>
+
+	<div class="pipeline">
+		<h3>① 轉譯管線<span class="time">16.6 分鐘音檔 ≈ 3.5 分鐘(舊 whisperx:15 分鐘)</span></h3>
+		<div class="flow">
+			<div class="step"><b>podcast.mp3</b><span>yt-dlp 下載</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>ffmpeg</b><span>16kHz mono WAV</span></div>
+			<div class="sep">→</div>
+			<div class="step hl"><b>whisper.cpp</b><span>Metal · 逐詞時間戳 · 9.5x 即時</span></div>
+			<div class="sep">→</div>
+			<div class="step hl"><b>Diarization</b><span>pyannote 分段 + titanet 聲紋 + 分群(threshold 1.1)</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>逐詞掛講者</b><span>重疊最大 + 視窗平滑</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>句級斷行</b><span>講者變更 / 句尾標點</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>word.raw.txt<br>word.txt</b></div>
+		</div>
+		<div class="note">逐詞時間戳讓講者歸屬精度達詞級(與 whisperx 同法),對照實驗爭議率 1.9%,且文字品質優於舊管線(large-v3-turbo vs small)。</div>
+	</div>
+
+	<div class="pipeline">
+		<h3>② AI 校正管線<span class="time">API 模式秒級 / CLI 模式約 1 分鐘</span></h3>
+		<div class="flow">
+			<div class="step"><b>word.raw.txt</b><span>行號編碼 prompt</span></div>
+			<div class="sep">→</div>
+			<div class="step hl"><b>Claude</b><span>API(structured outputs)或本機 CLI 單發</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>JSON</b><span>speakers(真名+性別)+ fixes(逐行修正)</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>本地套用</b><span>行號驗證 · 前綴替換 · 殘片合併</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>word.txt<br>correction.json</b></div>
+		</div>
+		<div class="note">AI 只回「對照表 + 有問題的行」,不重寫全文——省 token 且保住聽力素材保真;每個講者標籤都必須表態(含 <code>gender</code>),diarization 過切的殘片由 AI 依上下文併回。</div>
+	</div>
+
+	<div class="pipeline">
+		<h3>③ 練習管線<span class="time">模型載入 0.7s · 每句合成 ~2s</span></h3>
+		<div class="flow">
+			<div class="step"><b>word.txt</b><span>逐行解析 [講者]: 文字</span></div>
+			<div class="sep">→</div>
+			<div class="step hl"><b>三層選聲</b><span>手動 &gt; AI 性別 &gt; 輪替</span></div>
+			<div class="sep">→</div>
+			<div class="step hl"><b>kokoro TTS</b><span>sherpa-onnx · 24kHz</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>WAV + base64</b><span>Rust 手寫 WAV 編碼</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>前端播放</b><span>鍵盤逐句操作</span></div>
+		</div>
+		<div class="note">選聲優先序:每集 <code>voices.json</code> 手動指定 → correction.json 的 AI 性別(男/女聲池輪流)→ 出場順序輪替(未校正集數 fallback)。</div>
+	</div>
+
+	<h2>原生化成效</h2>
+	<p class="desc">2026-07 從 Python(whisperx / kokoro / yt-dlp 包裝)全面遷移至 Rust 原生推論的實測數據。</p>
+	<table>
+		<tr><th>指標</th><th>Python 管線(舊)</th><th>Rust 原生(新)</th><th>變化</th></tr>
+		<tr><td>轉譯耗時(994s 音檔)</td><td class="num">894.6s(CPU)</td><td class="num">199.4s(Metal)</td><td class="up">4.5x</td></tr>
+		<tr><td>依賴體積</td><td class="num">venv 1.6GB(torch 全家桶)</td><td class="num">binary ~25MB</td><td class="up">−98%</td></tr>
+		<tr><td>TTS 冷啟動</td><td class="num">數秒(KPipeline)</td><td class="num">0.7s</td><td class="up">秒開</td></tr>
+		<tr><td>HuggingFace token</td><td>必須(pyannote gated)</td><td>不需要(ONNX from GitHub)</td><td class="up">UX 障礙移除</td></tr>
+		<tr><td>使用者環境需求</td><td>Python + venv + pip</td><td>yt-dlp / ffmpeg(brew)</td><td class="up">大幅簡化</td></tr>
+		<tr><td>文字品質(詞級相似度)</td><td>基準(whisper small)</td><td>0.989 且撿回漏句</td><td class="up">升級</td></tr>
+	</table>
+
+	<h2>安全設計</h2>
+	<div class="cards">
+		<div class="card">
+			<h3>機密管理</h3>
+			<ul>
+				<li>Anthropic API key 存 <b>macOS Keychain</b>,config.json 永不落地明文</li>
+				<li>config.json 權限 600;舊明文 key 首次讀取自動搬遷</li>
+			</ul>
+		</div>
+		<div class="card">
+			<h3>供應鏈與完整性</h3>
+			<ul>
+				<li>模型下載 <b>SHA256 釘檔驗證</b>,不符即清除</li>
+				<li>Cargo.lock / package-lock 進版;npm audit + cargo-audit 稽核</li>
+				<li>ONNX / GGUF 為純資料格式(無 pickle 類程式碼執行面)</li>
+			</ul>
+		</div>
+		<div class="card">
+			<h3>執行面防護</h3>
+			<ul>
+				<li>所有 folder 參數過 <b>validate_folder</b>(防路徑跳脫)</li>
+				<li>嚴格 <b>CSP</b> 白名單;webview 不載入任何遠端內容</li>
+				<li>TaskGuard 防長任務重入;AI 呼叫無工具、structured outputs 硬約束(prompt injection 影響被鎖死)</li>
+			</ul>
+		</div>
+	</div>
+
+	<footer>English Practice · 架構文件 · 2026-07</footer>
+</div>
+</body>
+</html>
