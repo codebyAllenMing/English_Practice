@@ -6,6 +6,7 @@ import Transcribe from './Pages/Transcribe'
 import Correct from './Pages/Correct'
 import Practice from './Pages/Practice'
 import Settings from './Components/Settings'
+import ModelSetup from './Components/ModelSetup'
 
 function App() {
     const [showSettings, setShowSettings] = useState(false)
@@ -54,6 +55,7 @@ function App() {
             </main>
             </div>
             {showSettings && <Settings onClose={() => setShowSettings(false)} />}
+            <ModelSetup />
         </BrowserRouter>
     )
 }

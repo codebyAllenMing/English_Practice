@@ -1,13 +1,13 @@
 use std::fs;
 use std::path::PathBuf;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{Child, Command};
-use tokio::sync::Mutex;
-use tauri::{AppHandle, Emitter, Manager};
+use tokio::process::Command;
 
+pub mod native_download;
+pub mod native_models;
 pub mod native_transcribe;
+pub mod native_tts;
 
-fn project_dir() -> PathBuf {
+pub fn project_dir() -> PathBuf {
     let mut dir = std::env::current_dir().unwrap();
     while dir.file_name().map(|f| f != "English_Practice").unwrap_or(false) {
         dir = dir.parent().unwrap().to_path_buf();
@@ -15,166 +15,43 @@ fn project_dir() -> PathBuf {
     dir
 }
 
-fn python_path() -> PathBuf {
-    project_dir().join("venv").join("bin").join("python3")
+/// 資料根目錄(podcasts/models/config.json/logs 的家)。
+/// 優先序:init_data_dir 顯式指定(native_test 用)> debug 建置 = 專案根(開發資料不搬家)
+/// > release = ~/Library/Application Support/<bundle id>(打包後的正式位置)
+static DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+pub fn init_data_dir(path: PathBuf) {
+    let _ = DATA_DIR.set(path);
 }
 
-struct PracticeProcess(Mutex<Option<PersistentChild>>);
-
-struct PersistentChild {
-    child: Child,
-    stdin: tokio::process::ChildStdin,
-    reader: tokio::io::Lines<BufReader<tokio::process::ChildStdout>>,
+pub(crate) fn data_dir() -> &'static PathBuf {
+    DATA_DIR.get_or_init(|| {
+        let dir = if cfg!(debug_assertions) {
+            project_dir()
+        } else {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+            PathBuf::from(home).join("Library/Application Support/com.allenming.english-practice")
+        };
+        let _ = fs::create_dir_all(dir.join("podcasts"));
+        let _ = fs::create_dir_all(dir.join("models"));
+        dir
+    })
 }
 
-async fn spawn_persistent(script: &str) -> Result<PersistentChild, String> {
-    let args: Vec<&str> = script.split_whitespace().collect();
-    let mut child = Command::new(python_path())
-        .args(&args)
-        .current_dir(project_dir())
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("無法啟動 {}: {}", script, e))?;
-
-    let stdin = child.stdin.take().unwrap();
-    let stdout = child.stdout.take().unwrap();
-    let mut reader = BufReader::new(stdout).lines();
-
-    // 等待 READY
-    while let Some(line) = reader.next_line().await.map_err(|e| e.to_string())? {
-        if line == "READY" {
-            break;
+/// 外部 CLI 尋找:PATH 之外補上 Homebrew(arm64/Intel)路徑——
+/// 從 Finder 啟動的 .app 拿不到 shell 的 PATH
+pub(crate) fn find_tool(name: &str) -> Option<PathBuf> {
+    for dir in ["/opt/homebrew/bin", "/usr/local/bin"] {
+        let p = PathBuf::from(dir).join(name);
+        if p.exists() {
+            return Some(p);
         }
     }
-
-    Ok(PersistentChild { child, stdin, reader })
-}
-
-#[tauri::command]
-async fn start_practice(app: AppHandle) -> Result<(), String> {
-    let state = app.state::<PracticeProcess>();
-    let mut guard = state.0.lock().await;
-    if guard.is_some() {
-        return Ok(());
-    }
-    let pc = spawn_persistent("-m scripts.practice").await?;
-    *guard = Some(pc);
-    Ok(())
-}
-
-#[tauri::command]
-async fn stop_practice(app: AppHandle) -> Result<(), String> {
-    let state = app.state::<PracticeProcess>();
-    let mut guard = state.0.lock().await;
-    if let Some(mut pc) = guard.take() {
-        let _ = pc.stdin.write_all(b"QUIT\n").await;
-        let _ = pc.child.kill().await;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn play_line(app: AppHandle, folder: String, index: i32) -> Result<serde_json::Value, String> {
-    let state = app.state::<PracticeProcess>();
-    let mut guard = state.0.lock().await;
-    let pc = guard.as_mut().ok_or("練習模式未啟動")?;
-
-    let cmd = serde_json::json!({"folder": folder, "index": index});
-    pc.stdin.write_all(format!("{}\n", cmd).as_bytes()).await.map_err(|e| e.to_string())?;
-    pc.stdin.flush().await.map_err(|e| e.to_string())?;
-
-    while let Some(line) = pc.reader.next_line().await.map_err(|e| e.to_string())? {
-        if let Some(json_str) = line.strip_prefix("RESULT:") {
-            let val: serde_json::Value = serde_json::from_str(json_str).map_err(|e| e.to_string())?;
-            return Ok(val);
-        } else if let Some(err) = line.strip_prefix("ERROR:") {
-            return Err(err.to_string());
-        }
-    }
-
-    Err("scripts.practice 意外結束".to_string())
-}
-
-#[derive(serde::Serialize)]
-struct TitleInfo {
-    title: String,
-    folder: String,
-}
-
-#[tauri::command]
-async fn fetch_title(url: String) -> Result<TitleInfo, String> {
-    let output = Command::new(python_path())
-        .arg("-m")
-        .arg("scripts.download")
-        .arg("--fetch-title")
-        .arg(&url)
-        .current_dir(project_dir())
-        .output()
-        .await
-        .map_err(|e| format!("無法執行: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    let mut title = String::new();
-    let mut folder = String::new();
-
-    for line in stdout.lines() {
-        if let Some(t) = line.strip_prefix("TITLE:") {
-            title = t.to_string();
-        } else if let Some(f) = line.strip_prefix("FOLDER:") {
-            folder = f.to_string();
-        } else if let Some(err) = line.strip_prefix("ERROR:") {
-            return Err(err.to_string());
-        }
-    }
-
-    if title.is_empty() {
-        return Err(format!("無法取得標題\n{}", stderr));
-    }
-
-    Ok(TitleInfo { title, folder })
-}
-
-#[tauri::command]
-async fn download_audio(app: AppHandle, url: String, folder: Option<String>) -> Result<String, String> {
-    let mut cmd = Command::new(python_path());
-    cmd.arg("-m").arg("scripts.download").arg(&url);
-    if let Some(f) = &folder {
-        cmd.arg(f);
-    }
-
-    let mut child = cmd
-        .current_dir(project_dir())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("無法執行: {}", e))?;
-
-    let stdout = child.stdout.take().unwrap();
-    let mut reader = BufReader::new(stdout).lines();
-    let mut result = String::new();
-
-    while let Some(line) = reader.next_line().await.map_err(|e| e.to_string())? {
-        if let Some(pct) = line.strip_prefix("PROGRESS:") {
-            let _ = app.emit("download-progress", pct.to_string());
-        } else if let Some(title) = line.strip_prefix("TITLE:") {
-            let _ = app.emit("download-title", title.to_string());
-        } else if let Some(path) = line.strip_prefix("DONE:") {
-            result = path.to_string();
-        } else if let Some(err) = line.strip_prefix("ERROR:") {
-            return Err(err.to_string());
-        }
-    }
-
-    let status = child.wait().await.map_err(|e| e.to_string())?;
-    if status.success() {
-        Ok(result)
-    } else {
-        Err("下載失敗".to_string())
-    }
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths)
+            .map(|d| d.join(name))
+            .find(|p| p.exists())
+    })
 }
 
 #[derive(serde::Serialize)]
@@ -186,7 +63,7 @@ struct PodcastInfo {
 
 #[tauri::command]
 fn list_podcasts() -> Result<Vec<PodcastInfo>, String> {
-    let podcasts_dir = project_dir().join("podcasts");
+    let podcasts_dir = data_dir().join("podcasts");
     if !podcasts_dir.exists() {
         return Ok(vec![]);
     }
@@ -211,7 +88,7 @@ fn list_podcasts() -> Result<Vec<PodcastInfo>, String> {
 
 #[tauri::command]
 fn list_untranscribed() -> Result<Vec<String>, String> {
-    let podcasts_dir = project_dir().join("podcasts");
+    let podcasts_dir = data_dir().join("podcasts");
     if !podcasts_dir.exists() {
         return Ok(vec![]);
     }
@@ -238,7 +115,7 @@ fn list_untranscribed() -> Result<Vec<String>, String> {
 
 /// 與 core/logger.py 同格式寫入 logs/:[YYYY-mm-dd HH:MM:SS] [source] message
 fn log_line(file: &str, source: &str, message: &str) {
-    let log_dir = project_dir().join("logs");
+    let log_dir = data_dir().join("logs");
     let _ = fs::create_dir_all(&log_dir);
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
     let line = format!("[{}] [{}] {}\n", timestamp, source, message);
@@ -260,10 +137,39 @@ fn log_error_line(source: &str, message: &str) {
     log_line("error.log", source, message);
 }
 
+/// 進行中任務註冊表:防止同一資料夾的長任務(校正/轉譯)被重複觸發
+fn running_tasks() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static RUNNING: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    RUNNING.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+/// 註冊成功回傳 guard(drop 時自動解除,含錯誤提早 return 的路徑);已在跑則回 Err
+fn try_begin_task(kind: &str, folder: &str) -> Result<TaskGuard, String> {
+    let key = format!("{}:{}", kind, folder);
+    let mut running = running_tasks().lock().unwrap();
+    if !running.insert(key.clone()) {
+        return Err(format!("「{}」{}進行中,請稍候", folder, kind));
+    }
+    Ok(TaskGuard(key))
+}
+
+struct TaskGuard(String);
+
+impl Drop for TaskGuard {
+    fn drop(&mut self) {
+        running_tasks().lock().unwrap().remove(&self.0);
+    }
+}
+
 #[derive(serde::Deserialize)]
 struct SpeakerRename {
     from: String,
     to: String,
+    // 舊 correction.json 沒有此欄位;TTS 端讀 correction.json 挑男/女聲池用
+    #[serde(default)]
+    #[allow(dead_code)]
+    gender: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -282,6 +188,7 @@ struct Correction {
 /// 輸入永遠是 word.raw.txt(不修改),輸出覆寫 word.txt 並存 correction.json。
 #[tauri::command]
 async fn correct_transcript(folder: String) -> Result<serde_json::Value, String> {
+    let _guard = try_begin_task("校正", &folder)?;
     let start = std::time::Instant::now();
     log_info_line("correct", &format!("開始校正: {}", folder));
     match correct_transcript_inner(&folder).await {
@@ -311,7 +218,7 @@ async fn correct_transcript(folder: String) -> Result<serde_json::Value, String>
 }
 
 async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, String> {
-    let folder_path = project_dir().join("podcasts").join(folder);
+    let folder_path = data_dir().join("podcasts").join(folder);
     let raw_path = folder_path.join("word.raw.txt");
     let word_path = folder_path.join("word.txt");
 
@@ -323,7 +230,7 @@ async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, Str
         fs::copy(&word_path, &raw_path).map_err(|e| format!("建立 word.raw.txt 失敗: {}", e))?;
     }
 
-    let config: serde_json::Value = fs::read_to_string(project_dir().join("config.json"))
+    let config: serde_json::Value = fs::read_to_string(data_dir().join("config.json"))
         .ok()
         .and_then(|c| serde_json::from_str(&c).ok())
         .unwrap_or_else(|| serde_json::json!({}));
@@ -344,10 +251,14 @@ async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, Str
         "Below is a podcast transcript. Each line is prefixed with its 1-based line number followed by '|'. \
         Lines have the format \"[SPEAKER_XX]: text\".\n\n\
         Do two things:\n\
-        1. speakers: determine each speaker's real name from the dialogue (introductions like \"My name is ...\", \
-        or speakers addressing each other). Output one entry per label you can confidently rename, mapping the \
-        original label (e.g. SPEAKER_00) to the real name. Omit labels you cannot determine. \
-        Names must not contain '[', ']' or ':'.\n\
+        1. speakers: output one entry for EVERY distinct speaker label appearing in the transcript — \
+        including labels that are already real names. 'from' is the label exactly as it appears \
+        (e.g. SPEAKER_00, or James if already named). 'to' is the real name determined from the dialogue \
+        (introductions like \"My name is ...\", speakers addressing each other); if the label is already \
+        the real name, or the name cannot be determined, set 'to' identical to 'from'. \
+        Names must not contain '[', ']' or ':'. \
+        For each entry also set gender: \"m\" (male), \"f\" (female), or \"u\" (unknown) — judge from the name, \
+        pronouns, and how speakers address each other; used to pick a matching TTS voice.\n\
         2. fixes: find lines containing obvious speech-to-text errors (misheard words, broken punctuation) and \
         output the corrected full line. 'line' is the line number; 'text' is the complete replacement line \
         WITHOUT the number prefix but INCLUDING the original \"[SPEAKER_XX]: \" prefix unchanged.\n\n\
@@ -357,7 +268,7 @@ async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, Str
         do NOT merge or split lines.\n\
         - Only include lines that actually need a change.\n\n\
         Respond with ONLY a JSON object of the shape \
-        {{\"speakers\": [{{\"from\": \"SPEAKER_00\", \"to\": \"Name\"}}], \
+        {{\"speakers\": [{{\"from\": \"SPEAKER_00\", \"to\": \"Name\", \"gender\": \"m\"}}], \
         \"fixes\": [{{\"line\": 1, \"text\": \"[SPEAKER_00]: corrected line\"}}]}} \
         — no markdown fences, no explanations.\n\n\
         Transcript:\n{}",
@@ -436,9 +347,10 @@ async fn correct_via_api(api_key: &str, prompt: &str) -> Result<String, String> 
                                 "type": "object",
                                 "properties": {
                                     "from": { "type": "string" },
-                                    "to": { "type": "string" }
+                                    "to": { "type": "string" },
+                                    "gender": { "type": "string", "enum": ["m", "f", "u"] }
                                 },
-                                "required": ["from", "to"],
+                                "required": ["from", "to", "gender"],
                                 "additionalProperties": false
                             }
                         },
@@ -500,7 +412,7 @@ async fn correct_via_cli(prompt: &str) -> Result<String, String> {
         std::time::Duration::from_secs(300),
         Command::new("claude")
             .args(["-p", prompt, "--model", "haiku", "--no-session-persistence"])
-            .current_dir(project_dir())
+            .current_dir(data_dir())
             .output(),
     )
     .await
@@ -535,7 +447,7 @@ fn delete_podcast(folder: String) -> Result<(), String> {
     if folder.is_empty() || folder.contains('/') || folder.contains('\\') || folder.contains("..") {
         return Err("無效的資料夾名稱".to_string());
     }
-    let dir = project_dir().join("podcasts").join(&folder);
+    let dir = data_dir().join("podcasts").join(&folder);
     if !dir.is_dir() {
         return Err("找不到資料夾".to_string());
     }
@@ -544,7 +456,7 @@ fn delete_podcast(folder: String) -> Result<(), String> {
 
 #[tauri::command]
 fn list_transcribed() -> Result<Vec<String>, String> {
-    let podcasts_dir = project_dir().join("podcasts");
+    let podcasts_dir = data_dir().join("podcasts");
     if !podcasts_dir.exists() {
         return Ok(vec![]);
     }
@@ -568,14 +480,14 @@ fn list_transcribed() -> Result<Vec<String>, String> {
 
 #[tauri::command]
 fn get_lines(folder: String) -> Result<Vec<String>, String> {
-    let word_path = project_dir().join("podcasts").join(&folder).join("word.txt");
+    let word_path = data_dir().join("podcasts").join(&folder).join("word.txt");
     let content = fs::read_to_string(&word_path).map_err(|e| e.to_string())?;
     Ok(content.lines().filter(|l| !l.trim().is_empty()).map(|l| l.to_string()).collect())
 }
 
 #[tauri::command]
 fn get_config() -> Result<serde_json::Value, String> {
-    let config_path = project_dir().join("config.json");
+    let config_path = data_dir().join("config.json");
     if !config_path.exists() {
         return Ok(serde_json::json!({}));
     }
@@ -585,7 +497,7 @@ fn get_config() -> Result<serde_json::Value, String> {
 
 #[tauri::command]
 fn save_config(config: serde_json::Value) -> Result<(), String> {
-    let config_path = project_dir().join("config.json");
+    let config_path = data_dir().join("config.json");
     let content = serde_json::to_string_pretty(&config).map_err(|e| e.to_string())?;
     fs::write(&config_path, content).map_err(|e| e.to_string())
 }
@@ -593,7 +505,7 @@ fn save_config(config: serde_json::Value) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .manage(PracticeProcess(Mutex::new(None)))
+        .manage(native_tts::TtsState(tokio::sync::Mutex::new(None)))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -605,9 +517,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-                fetch_title, download_audio, list_podcasts, list_untranscribed, list_transcribed,
+                native_download::fetch_title, native_download::download_audio,
+                list_podcasts, list_untranscribed, list_transcribed,
                 native_transcribe::transcribe_audio, correct_transcript, delete_podcast, get_config, save_config, get_lines,
-                start_practice, stop_practice, play_line
+                native_tts::start_practice, native_tts::stop_practice, native_tts::play_line,
+                native_tts::get_voices, native_tts::save_voices,
+                native_models::models_status, native_models::download_models, native_download::tools_status
             ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -25,7 +25,8 @@ serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
 tauri = { version = "2.10.3", features = [] }
 tauri-plugin-log = "2"
-tokio = { version = "1", features = ["process", "time"] }
+# rt-multi-thread:native_test bin 自建 runtime 跑非同步模型下載
+tokio = { version = "1", features = ["process", "time", "rt-multi-thread"] }
 # rustls 而非系統 TLS:之後打包發佈不吃系統依賴
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 # 本地時間戳,與 Python core/logger.py 的 log 格式一致
@@ -33,3 +34,5 @@ chrono = "0.4"
 # 原生轉譯管線:whisper.cpp(Metal)ASR + sherpa-onnx speaker diarization(取代 whisperx)
 whisper-rs = { version = "0.16", features = ["metal"] }
 sherpa-onnx = { version = "1.13.4", default-features = false, features = ["static"] }
+# play_line 回傳的 WAV 以 base64 內嵌 JSON(沿用 practice.py 合約)
+base64 = "0.22"

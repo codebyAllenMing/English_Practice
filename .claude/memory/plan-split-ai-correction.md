@@ -161,8 +161,19 @@
 | 階段 | 內容 | 狀態 |
 | --- | --- | --- |
 | **1. 拆步驟 + AI 校正 API 化** | 本文件 | 完成 ✅ |
-| 2. kokoro TTS → ONNX(**官方 sherpa-onnx crate**) | 第一次碰 FFI,範圍小 | 調查完成,可行 ✅(使用者表示 TTS 現況還好,順位往後) |
+| 2. kokoro TTS → ONNX(**官方 sherpa-onnx crate**) | practice.py 退場 | **實作完成 ✅(2026-07-27)** |
 | 3. ASR → **whisper-rs**(Metal);diarization → sherpa-onnx crate | 最大塊;**免 HF token** | **實作完成 ✅(2026-07-24)** |
+
+### 階段 2 實作紀錄(2026-07-27)
+
+- `app/src-tauri/src/native_tts.rs`:kokoro-multi-lang-v1_0(sherpa-onnx OfflineTts,models/ 內 393MB)取代 `scripts/practice.py`;`start_practice`(載入引擎)/`stop_practice`(釋放)/`play_line`(合成)三個 command 原地換掉,**前端零改動**(JSON 合約沿用:speaker/text/audio(b64 wav 24kHz)/index/total)
+- VOICE_POOL 八聲輪替與 Python 版一致,名字→sid 對照:af_heart=3, am_adam=11, af_bella=2, am_michael=16, af_sky=10, am_echo=12, af_nova=7, am_liam=15(v1_0 speaker id 表)
+- headless 實測(`native_test tts <folder> <index> <out.wav>`):**模型載入 0.7s**(Python KPipeline 要數秒)、4.8s 句子合成 2.1s
+- G2P 差異註記:espeak-ng(sherpa)vs misaki(Python),數字/縮寫唸法可能微差,實聽驗收
+- **聲音性別分配(2026-07-27 追加)**:舊輪替制性別盲(Day 2 James 抽到女聲)。三層選聲:每集 `voices.json` 手動指定(練習卡 🔊 鈕 → VoiceDialog,12 個美音)> 校正 structured output 新增 `gender`(m/f/u,存 correction.json)→ 男/女聲池輪流 > 舊輪替 fallback。基頻實測驗證(男 ~120Hz/女 ~200Hz)。舊 correction.json 沒 gender,「重新校正」即補上
+- 同時清掉 HF Token UI(Settings transcribe 區塊 + 轉譯頁設定鈕);config 的 hf_token 鍵不再讀寫
+- **Python 現況**:`practice.py`、`transcribe.py` 已無人呼叫(保留當 rollback,穩定後可刪);仍在用的只剩 `download.py`(yt-dlp 包裝)
+- 附帶(同日稍早):校正/轉譯狀態全域化(CorrectionProvider + correction-done 事件)、Rust TaskGuard 防重複觸發、download.py 修 YouTube 403(player_client=default)+ 失敗清空資料夾
 
 ### 階段 3 實作紀錄(2026-07-24)
 
@@ -191,6 +202,15 @@
 - **ASR 不要用 sherpa-onnx**:whisper 錯字率高於 faster-whisper(issue #2900)、macOS CoreML 比 CPU 慢(issue #2910)
 - **ASR 用 whisper-rs**(whisper.cpp binding):活躍維護(2026-03)、`metal` feature 即有 Metal 加速,M 系列 large-v3 約 10x 即時速
 - 最終架構:ASR = whisper-rs(Metal)/ diarization + TTS = sherpa-onnx 官方 crate(CPU 即可,模型輕)
-| 4. 路徑改 Application Support、打包、簽名公證、CI | 發佈基礎建設 | |
+| 4. 路徑改 Application Support、打包、簽名公證、CI | 發佈基礎建設 | 進行中(1/5) |
+
+### 階段 4 進度(2026-07-28)
+
+- ✅ **步驟 1:下載去 Python 化**——`native_download.rs` 直接 spawn yt-dlp(fetch_title + run_download,含 clean_title 移植、進度事件、失敗清資料夾);**app 的 Python 依賴歸零**(scripts/ 三支全數退役,保留當 rollback;venv 可擇期刪除,start.command 的 activate 行已無作用)
+- ✅ **步驟 2:路徑抽象**——`data_dir()`(OnceLock):debug 建置 = 專案根(開發資料不搬家)、release = `~/Library/Application Support/com.allenming.english-practice`;`init_data_dir()` 供 native_test 覆寫;`find_tool()` 統一找外部 CLI(PATH + Homebrew arm64/Intel 路徑)
+- ✅ **步驟 3:模型下載器**——`native_models.rs`:四模型 manifest(whisper/segmentation/titanet/kokoro,共 ~1GB 下載量)、reqwest 串流 + 進度事件(model-progress,每 3MB)、tar.bz2 用 /usr/bin/tar 解(零新 crate)、marker 檔驗證;前端 `ModelSetup.jsx` 啟動檢查彈窗(App.jsx 掛載,模型齊全不顯示);headless 實測通過(File + TarBz2 兩路徑)
+- ✅ **步驟 4:外部工具引導**——`tools_status` command + Download 頁缺件 banner(顯示 brew install 指令);「內嵌 binary」留到打包時再評估
+- 待辦:⑤ tauri build + 簽名公證(需 Apple Developer 帳號,使用者暫緩)+ CI
+- 附帶:AI 校正 prompt 改為「每位講者都回報一筆(含 gender)」——修正已具名講者時 speakers 回空陣列、gender 記不到的問題
 
 決策紀錄:目標是**履歷作品**;平台先 macOS(Apple Silicon);走原生路線(路線 B)已傾向確定,階段 1 完成後依 Rust 手感再確認階段 3 引擎選擇。

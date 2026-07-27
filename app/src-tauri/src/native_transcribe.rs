@@ -19,7 +19,7 @@ use sherpa_onnx::{
 use tauri::Emitter;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use crate::{log_error_line, log_info_line, project_dir};
+use crate::{log_error_line, log_info_line, data_dir};
 
 const WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 const SEGMENTATION_MODEL: &str = "sherpa-onnx-pyannote-segmentation-3-0/model.onnx";
@@ -35,6 +35,7 @@ struct Word {
 
 #[tauri::command]
 pub async fn transcribe_audio(app: tauri::AppHandle, folder: String) -> Result<String, String> {
+	let _guard = crate::try_begin_task("轉譯", &folder)?;
 	let progress_app = app.clone();
 	tokio::task::spawn_blocking(move || {
 		let progress: Progress = Arc::new(move |msg: String| {
@@ -47,7 +48,7 @@ pub async fn transcribe_audio(app: tauri::AppHandle, folder: String) -> Result<S
 }
 
 fn models_dir() -> PathBuf {
-	project_dir().join("models")
+	data_dir().join("models")
 }
 
 fn check_models() -> Result<(), String> {
@@ -59,13 +60,8 @@ fn check_models() -> Result<(), String> {
 	Ok(())
 }
 
-/// macOS 從 Finder 啟動時 PATH 不含 /opt/homebrew/bin,直接找絕對路徑
-fn ffmpeg_bin() -> &'static str {
-	if std::path::Path::new("/opt/homebrew/bin/ffmpeg").exists() {
-		"/opt/homebrew/bin/ffmpeg"
-	} else {
-		"ffmpeg"
-	}
+fn ffmpeg_bin() -> PathBuf {
+	crate::find_tool("ffmpeg").unwrap_or_else(|| "ffmpeg".into())
 }
 
 pub fn run_pipeline(folder: &str, progress: Progress) -> Result<String, String> {
@@ -82,7 +78,7 @@ pub fn run_pipeline(folder: &str, progress: Progress) -> Result<String, String> 
 }
 
 fn run_pipeline_inner(folder: &str, progress: &Progress, total_timer: Instant) -> Result<String, String> {
-	let folder_path = project_dir().join("podcasts").join(folder);
+	let folder_path = data_dir().join("podcasts").join(folder);
 	let audio_path = folder_path.join("podcast.mp3");
 	if !audio_path.exists() {
 		return Err(format!("找不到音檔 {}", audio_path.display()));
@@ -196,7 +192,7 @@ fn run_whisper(samples: &[f32], progress: &Progress) -> Result<Vec<Word>, String
 
 fn run_diarization(samples: &[f32]) -> Result<Vec<OfflineSpeakerDiarizationSegment>, String> {
 	// threshold 實測:0.5 會過度切分(32 clusters),1.0 收斂到接近真實講者數;可由 config 覆寫
-	let threshold: f32 = fs::read_to_string(project_dir().join("config.json"))
+	let threshold: f32 = fs::read_to_string(data_dir().join("config.json"))
 		.ok()
 		.and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
 		.and_then(|v| v["diarization_threshold"].as_f64())
