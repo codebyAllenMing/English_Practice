@@ -1,4 +1,0 @@
-kokoro==0.9.4
-whisperx==3.8.2
-soundfile==0.13.1
-numpy==2.3.3

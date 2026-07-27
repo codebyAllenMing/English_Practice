@@ -171,6 +171,7 @@
 - headless 實測(`native_test tts <folder> <index> <out.wav>`):**模型載入 0.7s**(Python KPipeline 要數秒)、4.8s 句子合成 2.1s
 - G2P 差異註記:espeak-ng(sherpa)vs misaki(Python),數字/縮寫唸法可能微差,實聽驗收
 - **聲音性別分配(2026-07-27 追加)**:舊輪替制性別盲(Day 2 James 抽到女聲)。三層選聲:每集 `voices.json` 手動指定(練習卡 🔊 鈕 → VoiceDialog,12 個美音)> 校正 structured output 新增 `gender`(m/f/u,存 correction.json)→ 男/女聲池輪流 > 舊輪替 fallback。基頻實測驗證(男 ~120Hz/女 ~200Hz)。舊 correction.json 沒 gender,「重新校正」即補上
+- **diarization threshold 定案 1.1(2026-07-28)**:Day 3(角色扮演型內容)在 1.0 切出 6 標籤,1.1 收斂成 3(262/201/5);Day 2 於 1.0/1.1 皆乾淨、1.2 崩單人 → 預設值改 1.1。校正 prompt 同步強化:要求每個標籤都回報(含 gender),且明顯是既有講者的殘留小標籤要併回去
 - 同時清掉 HF Token UI(Settings transcribe 區塊 + 轉譯頁設定鈕);config 的 hf_token 鍵不再讀寫
 - **Python 現況**:`practice.py`、`transcribe.py` 已無人呼叫(保留當 rollback,穩定後可刪);仍在用的只剩 `download.py`(yt-dlp 包裝)
 - 附帶(同日稍早):校正/轉譯狀態全域化(CorrectionProvider + correction-done 事件)、Rust TaskGuard 防重複觸發、download.py 修 YouTube 403(player_client=default)+ 失敗清空資料夾

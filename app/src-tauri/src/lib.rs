@@ -256,6 +256,9 @@ async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, Str
         (e.g. SPEAKER_00, or James if already named). 'to' is the real name determined from the dialogue \
         (introductions like \"My name is ...\", speakers addressing each other); if the label is already \
         the real name, or the name cannot be determined, set 'to' identical to 'from'. \
+        Speaker diarization sometimes over-splits: a small leftover label (few lines) whose lines clearly \
+        continue an existing speaker's dialogue (same conversational flow, role-play, brief interjections) \
+        should be mapped to that speaker's name instead of kept separate. \
         Names must not contain '[', ']' or ':'. \
         For each entry also set gender: \"m\" (male), \"f\" (female), or \"u\" (unknown) — judge from the name, \
         pronouns, and how speakers address each other; used to pick a matching TTS voice.\n\

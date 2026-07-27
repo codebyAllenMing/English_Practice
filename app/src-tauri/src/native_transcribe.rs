@@ -191,13 +191,13 @@ fn run_whisper(samples: &[f32], progress: &Progress) -> Result<Vec<Word>, String
 }
 
 fn run_diarization(samples: &[f32]) -> Result<Vec<OfflineSpeakerDiarizationSegment>, String> {
-	// threshold 實測:0.5 會過度切分(32 clusters),1.0 收斂到接近真實講者數;可由 config 覆寫
+	// threshold 實測:0.5 過度切分(32 clusters)、1.0 偶有殘片(Day3 切 6)、1.1 兩集皆乾淨、1.2 會崩成單人;可由 config 覆寫
 	let threshold: f32 = fs::read_to_string(data_dir().join("config.json"))
 		.ok()
 		.and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
 		.and_then(|v| v["diarization_threshold"].as_f64())
 		.map(|v| v as f32)
-		.unwrap_or(1.0);
+		.unwrap_or(1.1);
 
 	let config = OfflineSpeakerDiarizationConfig {
 		segmentation: OfflineSpeakerSegmentationModelConfig {
