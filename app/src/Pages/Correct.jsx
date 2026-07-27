@@ -2,15 +2,16 @@ import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import Settings from '../Components/Settings'
 import ConfirmDeleteDialog from '../Components/ConfirmDeleteDialog'
+import { useCorrection } from '../Hooks/useCorrection'
 
 function Correct() {
     const [podcasts, setPodcasts] = useState([])
     const [showSettings, setShowSettings] = useState(false)
     const [hasApiKey, setHasApiKey] = useState(false)
     const [mode, setMode] = useState('api')
-    const [correcting, setCorrecting] = useState('')
-    const [results, setResults] = useState({})
     const [confirmDelete, setConfirmDelete] = useState('')
+    // 校正狀態在全域 Provider,切換分頁不會遺失
+    const { correcting, results, startCorrect, reportResult, clearResult } = useCorrection()
 
     // CLI 模式不需要 key;API 模式要有 key 才能按
     const canCorrect = mode === 'cli' || hasApiKey
@@ -34,35 +35,26 @@ function Correct() {
     }
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         load()
         loadConfig()
-        // 設定存檔後同步模式徽章與按鈕狀態
+        // 設定存檔後同步模式徽章與按鈕狀態;校正完成後刷新清單(含在別的分頁跑完回來的情況)
         window.addEventListener('config-saved', loadConfig)
-        return () => window.removeEventListener('config-saved', loadConfig)
-    }, [])
-
-    const handleCorrect = async (name) => {
-        setCorrecting(name)
-        setResults((r) => ({ ...r, [name]: null }))
-        try {
-            const res = await invoke('correct_transcript', { folder: name })
-            setResults((r) => ({ ...r, [name]: res }))
-            load()
-        } catch (err) {
-            setResults((r) => ({ ...r, [name]: { error: String(err) } }))
-        } finally {
-            setCorrecting('')
+        window.addEventListener('correction-done', load)
+        return () => {
+            window.removeEventListener('config-saved', loadConfig)
+            window.removeEventListener('correction-done', load)
         }
-    }
+    }, [])
 
     const handleDelete = async (name) => {
         setConfirmDelete('')
         try {
             await invoke('delete_podcast', { folder: name })
-            setResults((r) => ({ ...r, [name]: undefined }))
+            clearResult(name)
             load()
         } catch (err) {
-            setResults((r) => ({ ...r, [name]: { error: String(err) } }))
+            reportResult(name, { error: String(err) })
         }
     }
 
@@ -98,7 +90,7 @@ function Correct() {
                     <span className="text-xs text-purple-600 dark:text-purple-400">✨ 已校正</span>
                     <button
                         className="text-xs text-ink-faint hover:text-ink-soft underline disabled:opacity-50"
-                        onClick={() => handleCorrect(d.name)}
+                        onClick={() => startCorrect(d.name)}
                         disabled={!!correcting || !canCorrect}
                     >
                         重新校正
@@ -109,7 +101,7 @@ function Correct() {
         return (
             <button
                 className="px-3 py-1 text-xs bg-purple-600 text-white rounded-md hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                onClick={() => handleCorrect(d.name)}
+                onClick={() => startCorrect(d.name)}
                 disabled={!!correcting || !canCorrect}
                 title={canCorrect ? '用 AI 校正說話者名字與錯字' : '請先在設定填入 Anthropic API Key'}
             >

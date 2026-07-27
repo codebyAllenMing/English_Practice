@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import ConfirmDeleteDialog from '../Components/ConfirmDeleteDialog'
+import { useCorrection } from '../Hooks/useCorrection'
 
 function Download() {
     const [url, setUrl] = useState('')
@@ -16,9 +17,10 @@ function Download() {
     const [showPending, setShowPending] = useState(true)
     const [showDone, setShowDone] = useState(false)
     const [canCorrect, setCanCorrect] = useState(false)
-    const [correcting, setCorrecting] = useState('')
-    const [correctStatus, setCorrectStatus] = useState('')
     const [confirmDelete, setConfirmDelete] = useState('')
+    const [tools, setTools] = useState(null) // {ytDlp, ffmpeg}
+    // 校正狀態在全域 Provider,切換分頁不會遺失;correctStatus 改用 provider 的 lastMessage
+    const { correcting, lastMessage: correctStatus, startCorrect } = useCorrection()
 
     const loadDownloads = async () => {
         try {
@@ -26,20 +28,6 @@ function Download() {
             setDownloads(list)
         } catch (err) {
             console.error(err)
-        }
-    }
-
-    const handleCorrect = async (name) => {
-        setCorrecting(name)
-        setCorrectStatus('')
-        try {
-            const res = await invoke('correct_transcript', { folder: name })
-            setCorrectStatus(`校正完成:${name}(說話者 ${res.speakers} 位、修正 ${res.fixes} 行)`)
-            loadDownloads()
-        } catch (err) {
-            setCorrectStatus(`錯誤:${err}`)
-        } finally {
-            setCorrecting('')
         }
     }
 
@@ -53,8 +41,10 @@ function Download() {
     useEffect(() => {
         loadDownloads()
         loadConfig()
-        // 設定存檔後同步按鈕狀態
+        invoke('tools_status').then(setTools).catch(console.error)
+        // 設定存檔後同步按鈕狀態;校正完成後刷新清單(含在別的分頁跑完的情況)
         window.addEventListener('config-saved', loadConfig)
+        window.addEventListener('correction-done', loadDownloads)
 
         const unlistenProgress = listen('download-progress', (e) => {
             if (e.payload === 'converting') {
@@ -69,6 +59,7 @@ function Download() {
 
         return () => {
             window.removeEventListener('config-saved', loadConfig)
+            window.removeEventListener('correction-done', loadDownloads)
             unlistenProgress.then(fn => fn())
             unlistenTitle.then(fn => fn())
         }
@@ -139,9 +130,19 @@ function Download() {
         </button>
     )
 
+    const missingTools = tools ? [!tools.ytDlp && 'yt-dlp', !tools.ffmpeg && 'ffmpeg'].filter(Boolean) : []
+
     return (
         <div>
             <h1 className="text-2xl font-bold mb-6">下載 Podcast</h1>
+
+            {missingTools.length > 0 && (
+                <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg text-sm text-amber-800 dark:text-amber-200">
+                    找不到必要工具:{missingTools.join('、')}。請在終端機執行
+                    <code className="mx-1 px-1.5 py-0.5 bg-amber-100 dark:bg-amber-900/60 rounded">brew install {missingTools.join(' ')}</code>
+                    後重新啟動 app。
+                </div>
+            )}
             <div className="flex gap-3 mb-4">
                 <input
                     type="text"
@@ -271,7 +272,7 @@ function Download() {
                                             <span className="text-xs text-purple-600 dark:text-purple-400">✨ 已校正</span>
                                             <button
                                                 className="text-xs text-ink-faint hover:text-ink-soft underline disabled:opacity-50"
-                                                onClick={() => handleCorrect(d.name)}
+                                                onClick={() => startCorrect(d.name)}
                                                 disabled={!!correcting || !canCorrect}
                                             >
                                                 重新校正
@@ -280,7 +281,7 @@ function Download() {
                                     ) : (
                                         <button
                                             className="px-3 py-1 text-xs bg-purple-600 text-white rounded-md hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                                            onClick={() => handleCorrect(d.name)}
+                                            onClick={() => startCorrect(d.name)}
                                             disabled={!!correcting || !canCorrect}
                                             title={canCorrect ? '用 AI 校正說話者名字與錯字' : '請先在設定填入 Anthropic API Key'}
                                         >
