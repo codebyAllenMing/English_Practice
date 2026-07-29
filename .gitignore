@@ -44,6 +44,12 @@ app/node_modules/
 models/
 spike/target/
 
+# Rust 學習沙盒(不進版)
+rust-learning/
+
+# Claude Code 個人設定(不上傳)
+CLAUDE.md
+
 # Podcasts (download/transcribe output)
 podcasts/
 

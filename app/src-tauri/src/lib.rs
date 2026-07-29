@@ -123,11 +123,15 @@ fn write_config_file(config: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
-/// 外部 CLI 尋找:PATH 之外補上 Homebrew(arm64/Intel)路徑——
-/// 從 Finder 啟動的 .app 拿不到 shell 的 PATH
+/// 外部 CLI 尋找:PATH 之外補上 Homebrew(arm64/Intel)與 ~/.local/bin(claude CLI 等
+/// 使用者層安裝)——從 Finder 啟動的 .app 拿不到 shell 的 PATH
 pub(crate) fn find_tool(name: &str) -> Option<PathBuf> {
-    for dir in ["/opt/homebrew/bin", "/usr/local/bin"] {
-        let p = PathBuf::from(dir).join(name);
+    let mut candidates = vec![PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")];
+    if let Ok(home) = std::env::var("HOME") {
+        candidates.push(PathBuf::from(home).join(".local/bin"));
+    }
+    for dir in candidates {
+        let p = dir.join(name);
         if p.exists() {
             return Some(p);
         }
@@ -496,7 +500,7 @@ async fn correct_via_api(api_key: &str, prompt: &str) -> Result<String, String> 
 async fn correct_via_cli(prompt: &str) -> Result<String, String> {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(300),
-        Command::new("claude")
+        Command::new(find_tool("claude").unwrap_or_else(|| "claude".into()))
             .args(["-p", prompt, "--model", "haiku", "--no-session-persistence"])
             .current_dir(data_dir())
             .output(),

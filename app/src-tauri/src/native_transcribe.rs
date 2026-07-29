@@ -224,28 +224,49 @@ fn run_diarization(samples: &[f32]) -> Result<Vec<OfflineSpeakerDiarizationSegme
 	Ok(result.sort_by_start_time())
 }
 
-/// 逐詞掛講者(重疊最長,無重疊取最近)→ 多數決平滑 → 按「講者變更/句尾標點」斷行
+/// 逐詞掛講者(重疊最長,無重疊取最近)→ 多數決平滑 → 句子優先斷行。
+/// 只在句尾標點斷行(60 詞保險上限),整行講者由行內詞數多數決——
+/// 避免邊界詞跳槽把一句話切成碎片(如 "It" / "really does.")
 fn build_lines(words: &[Word], turns: &[OfflineSpeakerDiarizationSegment]) -> Vec<String> {
+	const MAX_LINE_WORDS: usize = 60;
+
 	let mut speakers: Vec<Option<i32>> = words.iter().map(|w| assign_speaker(w, turns)).collect();
 	smooth_speakers(&mut speakers);
 
 	let mut first_seen: Vec<i32> = Vec::new();
 	let mut lines: Vec<String> = Vec::new();
-	let mut cur_speaker: Option<i32> = None;
-	let mut cur_words: Vec<&str> = Vec::new();
+	let mut cur: Vec<(&str, Option<i32>)> = Vec::new();
 
 	for (word, speaker) in words.iter().zip(speakers.iter()) {
-		if !cur_words.is_empty() && *speaker != cur_speaker {
-			flush_line(&mut cur_words, cur_speaker, &mut first_seen, &mut lines);
-		}
-		cur_speaker = *speaker;
-		cur_words.push(&word.text);
-		if word.text.ends_with('.') || word.text.ends_with('?') || word.text.ends_with('!') {
-			flush_line(&mut cur_words, cur_speaker, &mut first_seen, &mut lines);
+		cur.push((&word.text, *speaker));
+		let sentence_end =
+			word.text.ends_with('.') || word.text.ends_with('?') || word.text.ends_with('!');
+		if sentence_end || cur.len() >= MAX_LINE_WORDS {
+			flush_sentence(&mut cur, &mut first_seen, &mut lines);
 		}
 	}
-	flush_line(&mut cur_words, cur_speaker, &mut first_seen, &mut lines);
+	flush_sentence(&mut cur, &mut first_seen, &mut lines);
 	lines
+}
+
+/// 整行講者 = 行內詞數多數決(平手取先出現者)
+fn flush_sentence(cur: &mut Vec<(&str, Option<i32>)>, first_seen: &mut Vec<i32>, lines: &mut Vec<String>) {
+	if cur.is_empty() {
+		return;
+	}
+	let mut counts: Vec<(Option<i32>, usize)> = Vec::new();
+	for (_, sp) in cur.iter() {
+		match counts.iter_mut().find(|(s, _)| s == sp) {
+			Some((_, n)) => *n += 1,
+			None => counts.push((*sp, 1)),
+		}
+	}
+	let speaker = counts.iter().max_by_key(|(_, n)| *n).map(|(s, _)| *s).unwrap_or(None);
+
+	let label = speaker_label(speaker, first_seen);
+	let text: Vec<&str> = cur.iter().map(|(w, _)| *w).collect();
+	lines.push(format!("[{}]: {}", label, text.join(" ")));
+	cur.clear();
 }
 
 /// 孤立的 1~2 詞講者跳動(token 時間戳抖動)以視窗多數決撫平
@@ -312,13 +333,4 @@ fn speaker_label(speaker: Option<i32>, first_seen: &mut Vec<i32>) -> String {
 		}
 		None => "UNKNOWN".to_string(),
 	}
-}
-
-fn flush_line(words: &mut Vec<&str>, speaker: Option<i32>, first_seen: &mut Vec<i32>, lines: &mut Vec<String>) {
-	if words.is_empty() {
-		return;
-	}
-	let label = speaker_label(speaker, first_seen);
-	lines.push(format!("[{}]: {}", label, words.join(" ")));
-	words.clear();
 }
