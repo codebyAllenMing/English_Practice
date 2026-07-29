@@ -7,12 +7,32 @@
 
 > 架構與流程圖:[docs/architecture.html](docs/architecture.html)
 
+<img src="docs/screenshots/practice-read.png" width="800" alt="文字閱讀模式:句級斷行與講者標籤">
+
 ## 特色
 
 - **原生轉譯管線**——whisper.cpp(Metal GPU)逐詞時間戳 + pyannote 說話者分離,句子優先斷行、行內多數決歸戶
 - **AI 校正(雙模式)**——Anthropic API(structured outputs 強制 JSON)或本機 Claude CLI;修正聽錯的字、標點,辨識講者真名與性別;只修錯不改寫,保住聽力素材保真
 - **逐句 TTS 練習**——kokoro 語音合成,依講者性別自動配音(男/女聲池),可手動指定 12 種美音
 - **首次啟動自動初始化**——模型下載器(953MB,SHA256 驗證),之後全離線
+
+## 畫面
+
+| 下載 | 轉譯(真實進度) |
+| --- | --- |
+| <img src="docs/screenshots/download.png" width="420" alt="下載頁:貼上連結、確認資料夾與進度"> | <img src="docs/screenshots/transcribe.png" width="420" alt="轉譯頁:真實百分比進度"> |
+
+| AI 校正(雙模式) | 校正結果 |
+| --- | --- |
+| <img src="docs/screenshots/correct-01.png" width="420" alt="校正頁:CLI/API 模式徽章與待校正清單"> | <img src="docs/screenshots/correct-02.png" width="420" alt="校正結果:講者辨識與修正行數"> |
+
+| 逐句練習 | 聲音設定(12 美音) |
+| --- | --- |
+| <img src="docs/screenshots/practice-play.png" width="420" alt="逐句練習:播放控制與鍵盤操作"> | <img src="docs/screenshots/voice-dialog.png" width="420" alt="聲音設定:每位講者指定 TTS 聲音"> |
+
+| 練習清單 | 設定(Keychain 保管 API key) |
+| --- | --- |
+| <img src="docs/screenshots/practice-list.png" width="420" alt="練習清單:卡片式選集"> | <img src="docs/screenshots/settings.png" width="420" alt="設定:校正模式切換與 API Key"> |
 
 ## 素材來源
 
