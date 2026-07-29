@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "English Practice",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "com.allenming.english-practice",
   "build": {
     "frontendDist": "../dist",
@@ -26,6 +26,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -33,5 +34,13 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDE3RUUwQ0M4NjcwQjc0RkQKUldUOWRBdG55QXp1Rit2cFIvdGErakRDK1l2SXY2MlB3MFZ1QzhSUTFmNUFCMHMyL1Q5aU9HQWUK",
+      "endpoints": [
+        "https://github.com/codebyAllenMing/English_Practice/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

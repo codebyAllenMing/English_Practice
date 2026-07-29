@@ -55,10 +55,12 @@
 
 ## 安裝(使用者)
 
-1. 下載 `.dmg`,把 app 拖進「應用程式」
+1. 從 [Releases](https://github.com/codebyAllenMing/English_Practice/releases) 下載 `.dmg`,把 app 拖進「應用程式」
 2. 未簽名版本首次開啟:**右鍵 → 打開**
 3. 安裝外部工具:`brew install yt-dlp ffmpeg`
 4. 首次啟動依畫面指示下載模型(約 953MB,一次性)
+
+之後發新版時 app 會**自動提示更新**(啟動時檢查 GitHub Releases,下載安裝後重啟即生效),不用重新下載 dmg。
 
 資料存放於 `~/Library/Application Support/com.allenming.english-practice/`;解除安裝 = 刪 app + 刪此資料夾。
 
@@ -81,6 +83,17 @@ cargo run --release --bin native_test <資料夾>                      # 轉譯
 cargo run --release --bin native_test tts <資料夾> <行號> <out.wav>  # TTS
 ```
 
+### 發佈
+
+更新走 Tauri updater(minisign 簽章,與 Apple 簽名無關)。發新版:
+
+```bash
+# 1. 改 app/src-tauri/tauri.conf.json 的 version
+# 2. build + 簽章 + 產 latest.json(私鑰在 ~/.tauri/,不進版)
+./release.sh
+# 3. 依腳本印出的 gh release create 指令上傳
+```
+
 ## AI 校正模式
 
 | 模式 | 適用 | 需求 |
@@ -98,7 +111,7 @@ API key 進 Keychain、模型 SHA256 驗證、路徑跳脫防護、嚴格 CSP、
 
 ## Roadmap
 
-- [ ] 自動更新(Tauri updater + GitHub Releases)
+- [x] 自動更新(Tauri updater + GitHub Releases)
 - [ ] 生字本:練習中標記單字 → n8n webhook → Google Sheets
 - [ ] 簽名與公證(Apple Developer)
 - [ ] CI 自動建置發佈

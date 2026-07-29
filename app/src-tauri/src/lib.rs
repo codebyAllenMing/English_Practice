@@ -596,6 +596,9 @@ fn save_config(mut config: serde_json::Value) -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 自動更新:updater 走 GitHub Releases 的 latest.json,process 供更新後 relaunch
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(native_tts::TtsState(tokio::sync::Mutex::new(None)))
         .setup(|app| {
             if cfg!(debug_assertions) {

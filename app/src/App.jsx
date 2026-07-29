@@ -7,6 +7,7 @@ import Correct from './Pages/Correct'
 import Practice from './Pages/Practice'
 import Settings from './Components/Settings'
 import ModelSetup from './Components/ModelSetup'
+import UpdateBanner from './Components/UpdateBanner'
 
 function App() {
     const [showSettings, setShowSettings] = useState(false)
@@ -56,6 +57,7 @@ function App() {
             </div>
             {showSettings && <Settings onClose={() => setShowSettings(false)} />}
             <ModelSetup />
+            <UpdateBanner />
         </BrowserRouter>
     )
 }

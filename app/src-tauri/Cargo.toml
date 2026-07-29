@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.1.0"
+version = "1.0.0"
 description = "A Tauri App"
 authors = ["you"]
 license = ""
@@ -38,3 +38,5 @@ sherpa-onnx = { version = "1.13.4", default-features = false, features = ["stati
 base64 = "0.22"
 # 模型下載完整性驗證(SHA256)
 sha2 = "0.10"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"

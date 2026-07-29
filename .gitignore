@@ -39,6 +39,7 @@ logs/
 app/src-tauri/target/
 app/dist/
 app/node_modules/
+release-out/
 
 # 原生管線模型檔與 spike 建置產物
 models/
