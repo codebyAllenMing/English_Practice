@@ -143,6 +143,8 @@ pub async fn play_line_ja(state: &JaTtsState, folder: &str, index: i32) -> Resul
 	Ok(serde_json::json!({
 		"speaker": speaker,
 		"text": text,
+		// 詞級振り仮名:[[詞面, 讀音|null], ...],前端渲染 <ruby>
+		"ruby": crate::furigana::annotate(&text),
 		"audio": BASE64.encode(&wav),
 		"index": index,
 		"total": total,

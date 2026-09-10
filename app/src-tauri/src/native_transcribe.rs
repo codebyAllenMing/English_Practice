@@ -38,14 +38,19 @@ pub async fn transcribe_audio(app: tauri::AppHandle, folder: String) -> Result<S
 	crate::validate_folder(&folder)?;
 	let _guard = crate::try_begin_task("轉譯", &folder)?;
 	let progress_app = app.clone();
-	tokio::task::spawn_blocking(move || {
+	let folder_name = folder.clone();
+	let result = tokio::task::spawn_blocking(move || {
 		let progress: Progress = Arc::new(move |msg: String| {
 			let _ = progress_app.emit("transcribe-progress", msg);
 		});
 		run_pipeline(&folder, progress)
 	})
 	.await
-	.map_err(|e| format!("轉譯執行緒失敗: {}", e))?
+	.map_err(|e| format!("轉譯執行緒失敗: {}", e))?;
+	if result.is_ok() {
+		crate::db::refresh_episode(&crate::course_language(), &folder_name);
+	}
+	result
 }
 
 fn models_dir() -> PathBuf {

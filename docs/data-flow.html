@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>語言影子練習 — 資料層目的與學習閉環</title>
+<style>
+	:root {
+		--surface: #fafafa;
+		--card: #ffffff;
+		--edge: #e4e4e7;
+		--ink: #18181b;
+		--ink-soft: #52525b;
+		--ink-faint: #a1a1aa;
+		--primary: #2563eb;
+		--ok: #16a34a;
+		--warn: #d97706;
+		--purple: #9333ea;
+		--react: #0891b2;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--surface: #111113;
+			--card: #1b1b1f;
+			--edge: #2e2e33;
+			--ink: #f4f4f5;
+			--ink-soft: #b8b8c0;
+			--ink-faint: #6b6b74;
+			--primary: #60a5fa;
+			--ok: #4ade80;
+			--warn: #fbbf24;
+			--purple: #c084fc;
+			--react: #22d3ee;
+		}
+	}
+	* { margin: 0; padding: 0; box-sizing: border-box; }
+	a { color: var(--primary); }
+	body {
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+		background: var(--surface);
+		color: var(--ink);
+		line-height: 1.6;
+		padding: 48px 24px 80px;
+	}
+	.wrap { max-width: 980px; margin: 0 auto; }
+	h1 { font-size: 28px; margin-bottom: 4px; }
+	.subtitle { color: var(--ink-soft); margin-bottom: 28px; }
+	h2 {
+		font-size: 20px; margin: 56px 0 6px;
+		padding-left: 12px; border-left: 4px solid var(--primary);
+	}
+	.desc { color: var(--ink-soft); font-size: 14px; margin-bottom: 20px; }
+	code {
+		font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px;
+		background: var(--card); border: 1px solid var(--edge); border-radius: 4px; padding: 0 4px;
+	}
+
+	/* ── 目的宣言 ── */
+	.thesis {
+		background: var(--card); border: 1px solid var(--edge); border-left: 4px solid var(--primary);
+		border-radius: 12px; padding: 18px 22px; font-size: 15.5px; margin-bottom: 12px;
+	}
+	.thesis b { color: var(--primary); }
+
+	/* ── 對比 ── */
+	.vs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+	@media (max-width: 640px) { .vs { grid-template-columns: 1fr; } }
+	.vs .side { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 16px 18px; }
+	.vs .side h3 { font-size: 14px; margin-bottom: 8px; }
+	.vs .side.now h3 { color: var(--ink-faint); }
+	.vs .side.next h3 { color: var(--ok); }
+	.vs ul { padding-left: 18px; font-size: 13.5px; color: var(--ink-soft); }
+	.vs li { margin-bottom: 4px; }
+
+	/* ── 閉環 ── */
+	.loop {
+		background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+		padding: 18px 20px; margin-bottom: 16px;
+	}
+	.loop h3 { font-size: 15px; margin-bottom: 12px; }
+	.loop h3 .who {
+		font-size: 12px; font-weight: 400; border: 1px solid currentColor;
+		border-radius: 999px; padding: 1px 8px; margin-left: 8px;
+	}
+	.loop.l1 h3 .who { color: var(--react); }
+	.loop.l2 h3 .who { color: var(--warn); }
+	.loop.l3 h3 .who { color: var(--purple); }
+	.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; }
+	.step {
+		flex: 1 1 120px; min-width: 120px; border: 1px solid var(--edge); border-radius: 8px;
+		padding: 8px 10px; font-size: 12.5px; background: var(--surface);
+		display: flex; flex-direction: column; justify-content: center;
+	}
+	.step b { font-size: 13px; }
+	.step span { color: var(--ink-faint); font-size: 11.5px; }
+	.step.db { border-color: var(--purple); }
+	.step.db b::after { content: " ⛁"; color: var(--purple); font-size: 11px; }
+	.flow .sep { align-self: center; color: var(--ink-faint); font-size: 14px; padding: 0 2px; flex: 0 0 auto; }
+	.flow .sep.back { color: var(--ok); font-weight: 700; }
+	.note { font-size: 12.5px; color: var(--ink-soft); margin-top: 10px; }
+
+	/* ── 功能地圖 ── */
+	.map { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+	.stage { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 16px 18px; }
+	.stage h3 { font-size: 14px; margin-bottom: 8px; }
+	.stage.near h3 { color: var(--ok); }
+	.stage.mid h3 { color: var(--warn); }
+	.stage.far h3 { color: var(--purple); }
+	.stage ul { padding-left: 18px; font-size: 13.5px; color: var(--ink-soft); }
+	.stage li { margin-bottom: 5px; }
+	.stage li b { color: var(--ink); font-weight: 600; }
+	.stage li small { color: var(--ink-faint); }
+
+	/* ── 邊界 ── */
+	.bounds { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+	.bound { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 16px; font-size: 13px; color: var(--ink-soft); }
+	.bound b { display: block; color: var(--ink); font-size: 14px; margin-bottom: 4px; }
+
+	footer { margin-top: 64px; text-align: center; color: var(--ink-faint); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>資料層的目的與學習閉環</h1>
+<p class="subtitle">為什麼要加 SQLite —— <a href="architecture.html">系統架構</a> · <a href="db-design.html">資料庫設計</a></p>
+
+<h2>目的</h2>
+<div class="thesis">
+	現在的 app 只記「<b>內容</b>」——每集的音檔與逐字稿都在,但「<b>你</b>」不在:練了什麼、卡在哪句、
+	標了哪些字、問過什麼,session 結束就蒸發。資料層的目的是把這些<b>行為變成可累積的資產</b>,
+	讓工具(單次播放器)升級成學習系統(記得你、回饋你)。
+</div>
+
+<h2>加入前後</h2>
+<div class="vs">
+	<div class="side now">
+		<h3>現在:檔案系統(只記內容)</h3>
+		<ul>
+			<li>每集自成一個資料夾,彼此無關聯</li>
+			<li>練習是無狀態的:關掉 app,這次練了什麼不留痕跡</li>
+			<li>生字只能抄在別處;想找「這個字哪集出現過」得逐檔翻</li>
+			<li>講義、校正各自為政,沒有跨集視角</li>
+		</ul>
+	</div>
+	<div class="side next">
+		<h3>加入 SQLite:行為與關聯(記住你)</h3>
+		<ul>
+			<li>集數/逐句有索引,跨集可查(FTS 全文檢索)</li>
+			<li>每句播放次數、每次練習起訖都留痕 → 難點浮現</li>
+			<li>生字有家:出處句、讀音、來源(自標/講義),可複習可匯出</li>
+			<li>tutor bot 有記憶:這集問過什麼、你常卡什麼</li>
+		</ul>
+	</div>
+</div>
+
+<h2>三個學習閉環</h2>
+<p class="desc">目的不是「存資料」,是讓資料<b>流回練習</b>——每條流程的終點都指回起點。⛁ = 進資料庫的節點。</p>
+
+<div class="loop l1">
+	<h3>① 練習閉環<span class="who">LineStats · PracticeSessions</span></h3>
+	<div class="flow">
+		<div class="step"><b>逐句跟讀</b><span>play_line</span></div>
+		<div class="sep">→</div>
+		<div class="step db"><b>行為落庫</b><span>播放次數 · 練習起訖</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>難點浮現</b><span>重播最多 = 難句 Top N</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>針對性重練</b><span>跳難句 · 弱點清單</span></div>
+		<div class="sep back">↩ 回到跟讀</div>
+	</div>
+	<div class="note">副產品:連續天數、週統計 —— 你要的「版本控制式自我追蹤」的資料源。</div>
+</div>
+
+<div class="loop l2">
+	<h3>② 詞彙閉環<span class="who">VocabItems</span></h3>
+	<div class="flow">
+		<div class="step"><b>遇到生字</b><span>練習中點標記 / 講義匯入</span></div>
+		<div class="sep">→</div>
+		<div class="step db"><b>入生字本</b><span>term · 出處句 · source</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>複習</b><span>出處原句回放(SRS 為未來遷移)</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>跨集再現</b><span>「這個字你第 2 集標過」</span></div>
+		<div class="sep back">↩ 加深記憶</div>
+	</div>
+	<div class="note">「AI 挑的(講義)∩ 我標的(手動)」= 重點複習區 —— <code>source</code> 欄位就是為這個疊顯存在。</div>
+</div>
+
+<div class="loop l3">
+	<h3>③ 問答閉環<span class="who">Messages</span></h3>
+	<div class="flow">
+		<div class="step"><b>練到卡住</b><span>「這句為什麼這樣用?」</span></div>
+		<div class="sep">→</div>
+		<div class="step db"><b>提問落庫</b><span>anchorLine 記住你在哪句</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>bot 精準回答</b><span>講義+全文+當前句 context</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>累積個人檔</b><span>常問時態?常卡敬語?</span></div>
+		<div class="sep back">↩ 回答越來越貼</div>
+	</div>
+	<div class="note">對話依集隔離(不會很泛),跨 session 保留(下次練同一集,bot 記得上次卡哪)。讀取規則:word.txt 全文 + analysis.json 講義 + anchorLine + 本集 Messages(+ 選讀 VocabItems);詳見 <a href="db-design.html">資料庫設計</a> Messages 區。</div>
+</div>
+
+<h2>解鎖的功能地圖</h2>
+<p class="desc">同一套 schema,功能按依賴順序長出來;每一階都是前一階的加法,不用改地基。</p>
+<div class="map">
+	<div class="stage near">
+		<h3>近端(schema 落地即有)</h3>
+		<ul>
+			<li><b>生字本</b> — 練習中標記、講義匯入、出處跳轉</li>
+			<li><b>pipeline 狀態快取</b> — 清單頁免掃檔案</li>
+			<li><b>tutor bot 記憶座</b> — Messages 表先就位</li>
+		</ul>
+	</div>
+	<div class="stage mid">
+		<h3>中端(資料開始累積後)</h3>
+		<ul>
+			<li><b>跨集全文檢索</b> — FTS5:「thunder 在哪幾集?」點了跳那句</li>
+			<li><b>難句統計</b> — 本集 Top N · 跨集弱點</li>
+			<li><b>練習履歷</b> — 連續天數 · 週統計</li>
+			<li><b>詞彙跨集再現</b> — 舊生字出現時標亮</li>
+		</ul>
+	</div>
+	<div class="stage far">
+		<h3>遠端(閉環成熟後)</h3>
+		<ul>
+			<li><b>間隔複習(SRS)</b> — 每日待複習隊列 <small>(migration 加欄位)</small></li>
+			<li><b>學習報告匯出</b> — 週報 CSV / Markdown</li>
+			<li><b>bot 個人化</b> — prompt 夾帶你的弱點檔案</li>
+		</ul>
+	</div>
+</div>
+
+<h2>邊界(這層「不是」什麼)</h2>
+<div class="bounds">
+	<div class="bound"><b>不是內容庫</b>音檔、逐字稿、講義永遠住檔案系統;DB 只存索引與行為。內容搬進 DB 的那天,「掃資料夾重建」的保險絲就斷了</div>
+	<div class="bound"><b>不是同步服務</b>單機單人;<code>synced</code> 旗標只是為未來匯出預留的 outbox 位,不預設任何雲端</div>
+	<div class="bound"><b>不是一次到位</b>v1 只建七張表跑近端功能;SRS、報告等靠 <code>user_version</code> 遷移逐步加法,永不重寫</div>
+</div>
+
+<footer>語言影子練習 · 資料層目的 · 2026-09 · <a href="architecture.html">系統架構</a> · <a href="db-design.html">資料庫設計</a></footer>
+</div>
+</body>
+</html>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>English Practice — 架構與流程</title>
+<title>語言影子練習 — 架構與流程</title>
 <style>
 	:root {
 		--surface: #fafafa;
@@ -36,6 +36,7 @@
 		}
 	}
 	* { margin: 0; padding: 0; box-sizing: border-box; }
+	a { color: var(--primary); }
 	body {
 		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
 		background: var(--surface);
@@ -143,14 +144,16 @@
 <body>
 <div class="wrap">
 
-	<h1>English Practice</h1>
-	<p class="subtitle">YouTube Podcast 聽力練習桌面應用 — 全原生離線推論管線(macOS Apple Silicon)</p>
+	<h1>語言影子練習</h1>
+	<p class="subtitle">YouTube Podcast 跟讀練習桌面應用 — 雙課綱(英/日)全原生離線推論管線(macOS Apple Silicon)· 資料庫設計見 <a href="db-design.html">db-design.html</a></p>
 	<div class="badges">
-		<span class="badge">Tauri 2</span>
+		<span class="badge">Tauri 2(+ updater 自動更新)</span>
 		<span class="badge">Rust</span>
 		<span class="badge">React 19 + Vite + Tailwind v4</span>
-		<span class="badge">whisper.cpp(Metal)</span>
+		<span class="badge">whisper.cpp(Metal · 多語)</span>
 		<span class="badge">sherpa-onnx(diarization / kokoro TTS)</span>
+		<span class="badge">VOICEVOX(日文 TTS sidecar)</span>
+		<span class="badge">lindera(振り仮名)</span>
 		<span class="badge">Anthropic API(structured outputs)</span>
 	</div>
 
@@ -160,24 +163,24 @@
 	<div class="layer t-react">
 		<div class="layer-title">FRONTEND<span class="tech">React 19 · Vite · Tailwind v4(明暗主題 token 化)</span></div>
 		<div class="boxes">
-			<div class="box"><b>下載</b><span>取標題 → 確認資料夾 → 進度條</span></div>
+			<div class="box"><b>下載</b><span>課綱切換(en/ja)· 取標題 → 確認 → 進度條</span></div>
 			<div class="box"><b>轉譯</b><span>真實百分比進度</span></div>
-			<div class="box"><b>校正</b><span>模式徽章 · 待/已校正分組</span></div>
-			<div class="box"><b>練習</b><span>逐句 TTS · 純文字閱讀 · 🔊 聲音設定</span></div>
-			<div class="box"><b>全域狀態</b><span>TranscribeProvider · CorrectionProvider(切頁不遺失)</span></div>
-			<div class="box"><b>初始化</b><span>ModelSetup 模型下載彈窗 · 工具檢查 banner</span></div>
+			<div class="box"><b>校正</b><span>模式徽章 · 完成自動接跑講義</span></div>
+			<div class="box"><b>練習</b><span>逐句 TTS · 振り仮名 · 本句重點 · 大綱跳句 · 閱讀</span></div>
+			<div class="box"><b>全域狀態</b><span>TranscribeProvider · CorrectionProvider(切頁不遺失)· 課綱徽章</span></div>
+			<div class="box"><b>初始化/更新</b><span>ModelSetup 模型彈窗 · 工具 banner · UpdateBanner 自動更新</span></div>
 		</div>
 	</div>
 	<div class="arrow-row">▲▼ Tauri IPC:commands + events(transcribe-progress / download-progress / model-progress / correction-done)</div>
 	<div class="layer t-rust">
 		<div class="layer-title">RUST CORE<span class="tech">Tauri 2 · tokio · 全 in-process 推論</span></div>
 		<div class="boxes">
-			<div class="box"><b>native_download</b><span>spawn yt-dlp · 標題清洗 · 失敗回滾</span></div>
-			<div class="box"><b>native_transcribe</b><span>whisper-rs(Metal)+ pyannote diarization</span></div>
-			<div class="box"><b>correct</b><span>Anthropic API / claude CLI 雙模式</span></div>
-			<div class="box"><b>native_tts</b><span>kokoro ONNX · 三層選聲</span></div>
-			<div class="box"><b>native_models</b><span>模型下載器 · SHA256 驗證</span></div>
-			<div class="box"><b>infra</b><span>data_dir · TaskGuard 防重入 · Keychain · logs</span></div>
+			<div class="box"><b>native_download</b><span>spawn yt-dlp · 標題清洗 · 失敗回滾+原因上報</span></div>
+			<div class="box"><b>native_transcribe</b><span>whisper-rs(Metal · 語言依課綱)+ pyannote diarization</span></div>
+			<div class="box"><b>correct / analysis</b><span>llm_via_api・cli 雙模式共用 · 校正+分析講義</span></div>
+			<div class="box"><b>native_tts / voicevox</b><span>en=kokoro in-process · ja=VOICEVOX sidecar</span></div>
+			<div class="box"><b>furigana</b><span>lindera + 內嵌 IPADIC · 詞級標音</span></div>
+			<div class="box"><b>native_models / infra</b><span>下載器(SHA256)· 課綱分流 podcasts_dir · TaskGuard · Keychain</span></div>
 		</div>
 	</div>
 	<div class="arrow-row">▲▼</div>
@@ -187,7 +190,8 @@
 			<div class="box"><b>yt-dlp / ffmpeg</b><span>外部 CLI(Homebrew)</span></div>
 			<div class="box"><b>Metal GPU</b><span>whisper.cpp 加速</span></div>
 			<div class="box"><b>Anthropic API</b><span>claude-haiku-4-5 · JSON schema 強制輸出</span></div>
-			<div class="box"><b>GitHub / HF Releases</b><span>模型來源(免 HF token)</span></div>
+			<div class="box"><b>VOICEVOX engine</b><span>本機 HTTP sidecar(port 50221)· app 啟停收割</span></div>
+			<div class="box"><b>GitHub / HF Releases</b><span>模型來源(免 HF token)· updater latest.json</span></div>
 			<div class="box"><b>macOS Keychain</b><span>API key 不落地明文</span></div>
 		</div>
 	</div>
@@ -195,15 +199,15 @@
 	<div class="layer t-data">
 		<div class="layer-title">DATA<span class="tech">dev = 專案根 · release = ~/Library/Application Support</span></div>
 		<div class="boxes">
-			<div class="box"><b>podcasts/&lt;集&gt;/</b><span>podcast.mp3 · word.raw.txt(不可變)· word.txt · correction.json · voices.json</span></div>
-			<div class="box"><b>models/</b><span>whisper q5_0 574MB · pyannote 6MB · titanet 40MB · kokoro 393MB</span></div>
-			<div class="box"><b>config.json</b><span>非機密設定(600 權限)</span></div>
-			<div class="box"><b>logs/</b><span>info.log · error.log</span></div>
+			<div class="box"><b>podcasts/&lt;lang&gt;/&lt;集&gt;/</b><span>依課綱分目錄(路徑即語言)· mp3 · word.raw.txt(不可變)· word.txt · correction.json · analysis.json(講義快取)· voices.json</span></div>
+			<div class="box"><b>models/</b><span>whisper q5_0 574MB · pyannote · titanet · kokoro 393MB · voicevox_engine 2GB(日文按需)</span></div>
+			<div class="box"><b>config.json</b><span>非機密設定 · course_language(600 權限)</span></div>
+			<div class="box"><b>logs/</b><span>info.log · error.log(含前端 log_ui 上報)</span></div>
 		</div>
 	</div>
 
 	<h2>核心流程</h2>
-	<p class="desc">三條管線各自獨立、可重跑;word.raw.txt 是轉譯的不可變產出,校正永遠以它為輸入,保證冪等。</p>
+	<p class="desc">四條管線各自獨立、可重跑;word.raw.txt 是轉譯的不可變產出,校正永遠以它為輸入,保證冪等。課綱(en/ja)決定每條管線的參數分派:whisper 語言、斷行規則、TTS 引擎、講義難度基準。</p>
 
 	<div class="pipeline">
 		<h3>① 轉譯管線<span class="time">16.6 分鐘音檔 ≈ 3.5 分鐘(舊 whisperx:15 分鐘)</span></h3>
@@ -222,7 +226,7 @@
 			<div class="sep">→</div>
 			<div class="step"><b>word.raw.txt<br>word.txt</b></div>
 		</div>
-		<div class="note">逐詞時間戳讓講者歸屬精度達詞級(與 whisperx 同法),對照實驗爭議率 1.9%,且文字品質優於舊管線(large-v3-turbo vs small)。</div>
+		<div class="note">逐詞時間戳讓講者歸屬精度達詞級(與 whisperx 同法),對照實驗爭議率 1.9%,且文字品質優於舊管線(large-v3-turbo vs small)。模型為多語版:日文課綱帶 <code>language=ja</code>,斷行改「全形句末標點 + 60 字元上限」(whisper 的日文「詞」是子句級片段,詞數上限會失真)。</div>
 	</div>
 
 	<div class="pipeline">
@@ -242,19 +246,35 @@
 	</div>
 
 	<div class="pipeline">
-		<h3>③ 練習管線<span class="time">模型載入 0.7s · 每句合成 ~2s</span></h3>
+		<h3>③ 練習管線<span class="time">kokoro 載入 0.7s / VOICEVOX 冷啟數秒 · 每句合成 ~2s</span></h3>
 		<div class="flow">
 			<div class="step"><b>word.txt</b><span>逐行解析 [講者]: 文字</span></div>
 			<div class="sep">→</div>
-			<div class="step hl"><b>三層選聲</b><span>手動 &gt; AI 性別 &gt; 輪替</span></div>
+			<div class="step hl"><b>依課綱選引擎</b><span>en=kokoro(in-process)· ja=VOICEVOX(HTTP sidecar)</span></div>
 			<div class="sep">→</div>
-			<div class="step hl"><b>kokoro TTS</b><span>sherpa-onnx · 24kHz</span></div>
+			<div class="step hl"><b>選聲</b><span>手動 &gt; AI 性別 &gt; 輪替(ja:つむぎ/武宏)</span></div>
 			<div class="sep">→</div>
-			<div class="step"><b>WAV + base64</b><span>Rust 手寫 WAV 編碼</span></div>
+			<div class="step"><b>WAV + base64</b><span>頭墊 0.4s 靜音(藍牙喇叭喚醒對策)</span></div>
 			<div class="sep">→</div>
-			<div class="step"><b>前端播放</b><span>鍵盤逐句操作</span></div>
+			<div class="step"><b>前端播放</b><span>鍵盤逐句 · 振り仮名 · 本句重點卡</span></div>
 		</div>
-		<div class="note">選聲優先序:每集 <code>voices.json</code> 手動指定 → correction.json 的 AI 性別(男/女聲池輪流)→ 出場順序輪替(未校正集數 fallback)。</div>
+		<div class="note">日文另有 furigana 支線:lindera 斷詞 + IPADIC 讀音(詞級、只標含漢字詞),play_line 回應與閱讀模式共用;VOICEVOX 子行程由 start/stop_practice 與 app 退出收割,不留孤兒。</div>
+	</div>
+
+	<div class="pipeline">
+		<h3>④ 分析講義管線<span class="time">校正後自動接跑 · 一次生成終身快取</span></h3>
+		<div class="flow">
+			<div class="step"><b>word.txt</b><span>行號編碼 prompt</span></div>
+			<div class="sep">→</div>
+			<div class="step hl"><b>Claude</b><span>與校正共用雙模式 · 難度基準 en=B1–B2 / ja=N4–N3</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>JSON</b><span>summary + sections(行段)+ vocab 10–20 則(行號錨定)</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>analysis.json</b><span>集資料夾快取 · 之後零 AI 呼叫</span></div>
+			<div class="sep">→</div>
+			<div class="step"><b>練習頁呈現</b><span>本句重點 · 大綱跳句 · 行圓點</span></div>
+		</div>
+		<div class="note">所有產出都以行號錨定逐字稿——大綱是章節選擇器、詞彙卡跟著當前句浮現;這份錨定之後也是 tutor bot 的 context 基礎。</div>
 	</div>
 
 	<h2>原生化成效</h2>
@@ -296,7 +316,7 @@
 		</div>
 	</div>
 
-	<footer>English Practice · 架構文件 · 2026-07</footer>
+	<footer>語言影子練習 · 架構文件 · 2026-09 · <a href="pipeline-flow.html">資料流</a> · <a href="db-design.html">SQLite 資料庫設計</a> · <a href="data-flow.html">資料層目的與學習閉環</a></footer>
 </div>
 </body>
 </html>

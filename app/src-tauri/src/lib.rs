@@ -2,6 +2,7 @@ use std::fs;
 use std::path::PathBuf;
 use tokio::process::Command;
 
+pub mod db;
 pub mod furigana;
 pub mod native_analysis;
 pub mod native_download;
@@ -9,6 +10,7 @@ pub mod native_models;
 pub mod native_transcribe;
 pub mod native_tts;
 pub mod native_voicevox;
+pub mod tutor;
 
 pub fn project_dir() -> PathBuf {
     let mut dir = std::env::current_dir().unwrap();
@@ -327,6 +329,7 @@ async fn correct_transcript(folder: String) -> Result<serde_json::Value, String>
     log_info_line("correct", &format!("開始校正: {}", folder));
     match correct_transcript_inner(&folder).await {
         Ok(res) => {
+            db::refresh_episode(&course_language(), &folder);
             log_info_line(
                 "correct",
                 &format!(
@@ -416,7 +419,7 @@ async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, Str
             .as_str()
             .filter(|k| !k.is_empty())
             .ok_or("請先在設定填入 Anthropic API Key(或切換為本機 Claude CLI 模式)")?;
-        llm_via_api(api_key, &prompt, correction_schema()).await?
+        llm_via_api(api_key, &prompt, Some(correction_schema())).await?
     };
 
     let parsed: serde_json::Value = serde_json::from_str(extract_json(&result_text))
@@ -500,18 +503,21 @@ fn correction_schema() -> serde_json::Value {
     })
 }
 
-/// Anthropic API 路徑:structured outputs 強制 JSON 回傳;校正與分析講義共用
+/// Anthropic API 路徑;校正/分析/tutor 共用。schema 給 Some = structured outputs 強制 JSON,
+/// None = 自由文字(tutor 對話用)
 pub(crate) async fn llm_via_api(
     api_key: &str,
     prompt: &str,
-    schema: serde_json::Value,
+    schema: Option<serde_json::Value>,
 ) -> Result<String, String> {
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": "claude-haiku-4-5",
         "max_tokens": 8192,
-        "output_config": { "format": { "type": "json_schema", "schema": schema } },
         "messages": [{ "role": "user", "content": prompt }]
     });
+    if let Some(schema) = schema {
+        body["output_config"] = serde_json::json!({ "format": { "type": "json_schema", "schema": schema } });
+    }
 
     let resp = reqwest::Client::new()
         .post("https://api.anthropic.com/v1/messages")
@@ -586,7 +592,10 @@ fn delete_podcast(folder: String) -> Result<(), String> {
     if !dir.is_dir() {
         return Err("找不到資料夾".to_string());
     }
-    fs::remove_dir_all(&dir).map_err(|e| format!("刪除失敗: {}", e))
+    fs::remove_dir_all(&dir).map_err(|e| format!("刪除失敗: {}", e))?;
+    // derived 索引同步移除;primary(生字/對話/統計)刻意保留為使用者資產
+    db::delete_episode(&course_language(), &folder);
+    Ok(())
 }
 
 #[tauri::command]
@@ -661,6 +670,8 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            // 索引重建(derived 表)丟背景執行緒,不擋啟動
+            std::thread::spawn(db::rebuild_index);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -672,7 +683,8 @@ pub fn run() {
                 native_models::models_status, native_models::download_models, native_download::tools_status,
                 native_models::voicevox_status, native_models::download_voicevox,
                 native_analysis::analyze_transcript, native_analysis::get_analysis,
-                furigana::get_ruby, log_ui
+                furigana::get_ruby, db::toggle_vocab, db::list_vocab, db::list_messages,
+                tutor::ask_tutor, log_ui
             ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

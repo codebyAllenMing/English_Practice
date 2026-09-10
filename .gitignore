@@ -32,6 +32,11 @@ build/
 # Config (contains tokens)
 config.json
 
+# SQLite 資料庫(索引與使用者行為,不進版)
+*.db
+*.db-wal
+*.db-shm
+
 # Logs
 logs/
 

@@ -126,7 +126,7 @@ pub fn run_download(
 	}
 	std::fs::create_dir_all(&folder_path).map_err(|e| format!("建立資料夾失敗: {}", e))?;
 	log_info_line("download", &format!("標題: {}, 資料夾: {}", title, folder_name));
-	notify("download-title", title);
+	notify("download-title", title.clone());
 
 	let output_path = folder_path.join("podcast.mp3");
 	let spawn_result = std::process::Command::new(yt_dlp_bin())
@@ -190,6 +190,8 @@ pub fn run_download(
 	}
 
 	log_info_line("download", &format!("下載完成: {} (耗時 {:.1}s)", folder_name, elapsed));
+	// sourceUrl 只在此刻有(索引重建撈不回),順手入庫
+	crate::db::record_download(&crate::course_language(), &folder_name, url, &title);
 	Ok(format!("podcasts/{}/podcast.mp3", folder_name))
 }
 

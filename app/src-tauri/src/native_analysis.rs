@@ -16,6 +16,7 @@ pub async fn analyze_transcript(folder: String) -> Result<serde_json::Value, Str
 	log_info_line("analysis", &format!("開始分析: {}", folder));
 	match analyze_inner(&folder).await {
 		Ok(res) => {
+			crate::db::refresh_episode(&crate::course_language(), &folder);
 			log_info_line(
 				"analysis",
 				&format!(
@@ -94,7 +95,7 @@ async fn analyze_inner(folder: &str) -> Result<serde_json::Value, String> {
 			.as_str()
 			.filter(|k| !k.is_empty())
 			.ok_or("請先在設定填入 Anthropic API Key(或切換為本機 Claude CLI 模式)")?;
-		crate::llm_via_api(api_key, &prompt, analysis_schema()).await?
+		crate::llm_via_api(api_key, &prompt, Some(analysis_schema())).await?
 	};
 
 	let parsed: serde_json::Value = serde_json::from_str(crate::extract_json(&result_text))

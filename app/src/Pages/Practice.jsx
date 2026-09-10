@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { useLoading } from '../Hooks/useLoading'
 import VoiceDialog from '../Components/VoiceDialog'
+import TutorChat from '../Components/TutorChat'
 
 // 講者 tag 色盤:依出場順序輪流分配,同名固定同色
 const SPEAKER_COLORS = [
@@ -29,6 +30,44 @@ function RubyText({ segs, fallback }) {
     )
 }
 
+// 可點標記的當前句:點詞 toggle 生字(en 依空白切詞、ja 用 lindera 斷詞的 ruby segs)
+function MarkableText({ text, ruby, lineNo, markedSet, onToggle }) {
+    const strip = (s) => s.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '')
+    const cls = (marked) =>
+        `cursor-pointer rounded px-0.5 hover:bg-amber-100/70 dark:hover:bg-amber-900/40 ${
+            marked ? 'bg-amber-200/70 dark:bg-amber-800/50' : ''
+        }`
+    if (ruby && ruby.length > 0) {
+        return ruby.map(([surface, reading], i) => {
+            const term = strip(surface)
+            if (!term) return <span key={i}>{surface}</span>
+            const marked = markedSet.has(`${lineNo}:${term}`)
+            return (
+                <span key={i} className={cls(marked)} onClick={() => onToggle(term, reading || '')}>
+                    {reading ? (
+                        <ruby>
+                            {surface}
+                            <rt className="text-[0.45em] text-ink-faint font-normal">{reading}</rt>
+                        </ruby>
+                    ) : (
+                        surface
+                    )}
+                </span>
+            )
+        })
+    }
+    return (text || '').split(/(\s+)/).map((tok, i) => {
+        const term = strip(tok)
+        if (!term) return <span key={i}>{tok}</span>
+        const marked = markedSet.has(`${lineNo}:${term}`)
+        return (
+            <span key={i} className={cls(marked)} onClick={() => onToggle(term, '')}>
+                {tok}
+            </span>
+        )
+    })
+}
+
 function Practice() {
     const [podcasts, setPodcasts] = useState([])
     const [selected, setSelected] = useState('')
@@ -47,6 +86,9 @@ function Practice() {
     const [analysis, setAnalysis] = useState(null) // 講義:null=未載入 | {exists:false} | {exists:true, result}
     const [analyzing, setAnalyzing] = useState(false)
     const [outlineOpen, setOutlineOpen] = useState(false)
+    const [vocabMarks, setVocabMarks] = useState([]) // 本集已標記生字(高亮用)
+    const [allVocab, setAllVocab] = useState([]) // 清單頁生字本(目前課綱全部)
+    const [vocabOpen, setVocabOpen] = useState(false)
     const audioRef = useRef(null)
     const listRef = useRef(null)
     const lineRefs = useRef([])
@@ -55,6 +97,11 @@ function Practice() {
     useEffect(() => {
         invoke('list_transcribed').then(setPodcasts).catch(console.error)
     }, [])
+
+    // 生字本:回到清單頁時重載(練習中新標記的會出現)
+    useEffect(() => {
+        if (!selected) invoke('list_vocab', { folder: null }).then(setAllVocab).catch(() => {})
+    }, [selected])
 
     const speakerColors = useMemo(() => {
         const map = {}
@@ -78,6 +125,37 @@ function Practice() {
         return map
     }, [analysis])
 
+    const markedSet = useMemo(() => new Set(vocabMarks.map((v) => `${v.lineNo}:${v.term}`)), [vocabMarks])
+
+    // 點詞/⭐ 收藏:同鍵再點=取消;meaning 從講義同詞條帶入
+    const handleToggleVocab = async (term, reading = '', meta = null) => {
+        if (!currentData) return
+        const lineNo = meta?.line || currentData.index + 1
+        const hit = meta || (analysis?.result?.vocab || []).find((x) => x.term === term)
+        try {
+            await invoke('toggle_vocab', {
+                folder: selected,
+                lineNo,
+                term,
+                reading: reading || hit?.reading || '',
+                meaning: hit?.meaning || '',
+                source: meta ? 'analysis' : 'user',
+            })
+            setVocabMarks(await invoke('list_vocab', { folder: selected }))
+        } catch (err) {
+            setError(String(err))
+        }
+    }
+
+    const handleRemoveVocab = async (v) => {
+        try {
+            await invoke('toggle_vocab', { folder: v.folder, lineNo: v.lineNo, term: v.term })
+            setAllVocab(await invoke('list_vocab', { folder: null }))
+        } catch (err) {
+            setError(String(err))
+        }
+    }
+
     const handlePractice = async (name) => {
         setSelected(name)
         setView('practice')
@@ -88,6 +166,7 @@ function Practice() {
         setAnalysis(null)
         setOutlineOpen(false)
         invoke('get_analysis', { folder: name }).then(setAnalysis).catch(() => {})
+        invoke('list_vocab', { folder: name }).then(setVocabMarks).catch(() => {})
         loading(true, '載入語音模型...')
         try {
             const l = await invoke('get_lines', { folder: name })
@@ -202,6 +281,8 @@ function Practice() {
 
     useEffect(() => {
         const handleKeyDown = (e) => {
+            // 聊天輸入框打字時不觸發快捷鍵(空白鍵=下一句的衝突防護)
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
             if (view !== 'practice' || !selected || lines.length === 0) return
             if (e.key === 'ArrowUp') { e.preventDefault(); handlePrev() }
             if (e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); handleNext() }
@@ -275,6 +356,36 @@ function Practice() {
                         ))}
                     </div>
                 )}
+                <div className="mt-8">
+                    <button
+                        className="w-full text-left text-sm text-ink-soft px-3 py-2 bg-card border border-edge rounded-lg hover:bg-muted"
+                        onClick={() => setVocabOpen(!vocabOpen)}
+                    >
+                        {vocabOpen ? '▾' : '▸'} 生字本（{allVocab.length}）
+                    </button>
+                    {vocabOpen &&
+                        (allVocab.length === 0 ? (
+                            <p className="text-xs text-ink-faint mt-2 px-1">練習時點句子裡的單字、或按講義卡的 ☆ 即可收藏</p>
+                        ) : (
+                            <div className="mt-2 divide-y divide-edge bg-card border border-edge rounded-lg">
+                                {allVocab.map((v) => (
+                                    <div key={v.id} className="flex items-baseline gap-3 px-4 py-2.5 text-sm">
+                                        <span className="font-bold shrink-0">{v.term}</span>
+                                        {v.reading && <span className="text-ink-faint text-xs shrink-0">（{v.reading}）</span>}
+                                        <span className="text-ink-soft flex-1 text-xs truncate">{v.meaning}</span>
+                                        <span className="text-ink-faint text-xs shrink-0">{v.folder} L{v.lineNo}</span>
+                                        <button
+                                            className="text-ink-faint/60 hover:text-red-500 dark:hover:text-red-400 shrink-0 text-xs"
+                                            title="移除"
+                                            onClick={() => handleRemoveVocab(v)}
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        ))}
+                </div>
                 {voiceFolder && <VoiceDialog folder={voiceFolder} onClose={() => setVoiceFolder('')} />}
             </div>
         )
@@ -382,8 +493,15 @@ function Practice() {
                             <p
                                 className={currentData.ruby?.length ? 'leading-[2.1]' : 'leading-relaxed'}
                                 style={{ fontSize: `${fontSize}px` }}
+                                title="點單字收藏到生字本,再點取消"
                             >
-                                <RubyText segs={currentData.ruby} fallback={currentData.text} />
+                                <MarkableText
+                                    text={currentData.text}
+                                    ruby={currentData.ruby}
+                                    lineNo={currentData.index + 1}
+                                    markedSet={markedSet}
+                                    onToggle={handleToggleVocab}
+                                />
                             </p>
                             {(vocabByLine[currentData.index + 1] || []).length > 0 && (
                                 <div className="mt-4 space-y-2">
@@ -391,9 +509,16 @@ function Practice() {
                                     {vocabByLine[currentData.index + 1].map((v, i) => (
                                         <div
                                             key={i}
-                                            className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40"
+                                            className="relative p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40"
                                         >
-                                            <p className="text-sm">
+                                            <button
+                                                className="absolute top-2 right-2 text-base text-amber-500 hover:scale-110 transition-transform"
+                                                title="收藏到生字本"
+                                                onClick={() => handleToggleVocab(v.term, v.reading || '', v)}
+                                            >
+                                                {markedSet.has(`${v.line}:${v.term}`) ? '★' : '☆'}
+                                            </button>
+                                            <p className="text-sm pr-6">
                                                 <span className="font-bold">{v.term}</span>
                                                 {v.reading && <span className="text-ink-faint ml-1">（{v.reading}）</span>}
                                                 <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-200/60 dark:bg-amber-800/60 text-amber-900 dark:text-amber-200">
@@ -507,6 +632,8 @@ function Practice() {
                     ))}
                 </ul>
             </div>
+
+            <TutorChat folder={selected} anchorLine={currentIndex + 1} />
         </div>
     )
 }

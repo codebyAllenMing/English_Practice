@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>語言影子練習 — 資料流:從下載到練習</title>
+<style>
+	:root {
+		--surface: #fafafa;
+		--card: #ffffff;
+		--edge: #e4e4e7;
+		--ink: #18181b;
+		--ink-soft: #52525b;
+		--ink-faint: #a1a1aa;
+		--primary: #2563eb;
+		--rust: #ce4a1f;
+		--ok: #16a34a;
+		--warn: #d97706;
+		--purple: #9333ea;
+		--react: #0891b2;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--surface: #111113;
+			--card: #1b1b1f;
+			--edge: #2e2e33;
+			--ink: #f4f4f5;
+			--ink-soft: #b8b8c0;
+			--ink-faint: #6b6b74;
+			--primary: #60a5fa;
+			--rust: #f0764a;
+			--ok: #4ade80;
+			--warn: #fbbf24;
+			--purple: #c084fc;
+			--react: #22d3ee;
+		}
+	}
+	* { margin: 0; padding: 0; box-sizing: border-box; }
+	a { color: var(--primary); }
+	body {
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+		background: var(--surface);
+		color: var(--ink);
+		line-height: 1.6;
+		padding: 48px 24px 80px;
+	}
+	.wrap { max-width: 980px; margin: 0 auto; }
+	h1 { font-size: 28px; margin-bottom: 4px; }
+	.subtitle { color: var(--ink-soft); margin-bottom: 20px; }
+	h2 {
+		font-size: 20px; margin: 56px 0 6px;
+		padding-left: 12px; border-left: 4px solid var(--primary);
+	}
+	.desc { color: var(--ink-soft); font-size: 14px; margin-bottom: 20px; }
+	code {
+		font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px;
+		background: var(--card); border: 1px solid var(--edge); border-radius: 4px; padding: 0 4px;
+	}
+
+	/* ── 圖例 ── */
+	.legend { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+	.lg {
+		font-size: 12px; padding: 3px 10px; border-radius: 999px;
+		border: 1px solid var(--edge); background: var(--card); color: var(--ink-soft);
+	}
+	.lg::before { content: "■ "; }
+	.lg.file::before { color: var(--ok); }
+	.lg.native::before { color: var(--rust); }
+	.lg.ai::before { color: var(--purple); }
+	.lg.ipc::before { color: var(--react); }
+	.lg.db::before { color: var(--ink-faint); content: "⛁ "; }
+
+	/* ── 階段卡 ── */
+	.stage {
+		background: var(--card); border: 1px solid var(--edge); border-radius: 12px;
+		padding: 18px 20px; margin-bottom: 0;
+	}
+	.stage h3 { font-size: 16px; margin-bottom: 2px; }
+	.stage h3 .num {
+		display: inline-flex; width: 22px; height: 22px; border-radius: 50%;
+		background: var(--primary); color: #fff; font-size: 13px;
+		align-items: center; justify-content: center; margin-right: 8px;
+	}
+	.stage h3 .page { font-size: 12px; font-weight: 400; color: var(--ink-faint); margin-left: 8px; }
+	.stage .in { font-size: 12.5px; color: var(--ink-faint); margin-bottom: 10px; }
+	.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; margin-bottom: 10px; }
+	.step {
+		flex: 1 1 118px; min-width: 118px; border: 1px solid var(--edge); border-radius: 8px;
+		padding: 7px 10px; font-size: 12.5px; background: var(--surface);
+		display: flex; flex-direction: column; justify-content: center;
+	}
+	.step b { font-size: 13px; }
+	.step span { color: var(--ink-faint); font-size: 11.5px; }
+	.step.native { border-color: rgba(234, 88, 12, 0.5); }
+	.step.ai { border-color: rgba(147, 51, 234, 0.55); }
+	.flow .sep { align-self: center; color: var(--ink-faint); font-size: 14px; padding: 0 2px; flex: 0 0 auto; }
+
+	/* 產物列 */
+	.artifacts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+	.artifacts .label { font-size: 12px; color: var(--ink-faint); margin-right: 2px; }
+	.chip {
+		font-size: 12px; font-family: ui-monospace, "SF Mono", Menlo, monospace;
+		border: 1px solid rgba(22, 163, 74, 0.5); background: rgba(22, 163, 74, 0.08);
+		color: var(--ink-soft); border-radius: 6px; padding: 2px 8px;
+	}
+	.chip.mut { border-style: dashed; }
+	.chip.immutable { border-color: var(--ok); font-weight: 600; }
+	.ipc {
+		font-size: 11.5px; color: var(--react); margin-top: 8px;
+	}
+	.ipc::before { content: "⚡ "; }
+	.dbhook { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; }
+	.dbhook::before { content: "⛁ "; }
+
+	/* 站間箭頭:標注交棒的資料 */
+	.handoff {
+		text-align: center; color: var(--ink-faint); font-size: 12px;
+		padding: 8px 0; display: flex; align-items: center; justify-content: center; gap: 10px;
+	}
+	.handoff::before, .handoff::after { content: ""; flex: 0 0 70px; border-top: 1.5px dashed var(--edge); }
+	.handoff b { color: var(--ok); font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+
+	/* ── 資料夾成長軸 ── */
+	.growth { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 16px 20px; }
+	.growth .row { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--edge); align-items: baseline; }
+	.growth .row:last-child { border-bottom: none; }
+	.growth .when { flex: 0 0 84px; font-size: 12.5px; color: var(--ink-faint); }
+	.growth .files { display: flex; flex-wrap: wrap; gap: 6px; }
+	.growth .new { outline: 2px solid rgba(22, 163, 74, 0.35); outline-offset: 1px; }
+
+	footer { margin-top: 64px; text-align: center; color: var(--ink-faint); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>資料流:從下載到練習</h1>
+<p class="subtitle">一支 YouTube 連結如何一路變成可跟讀的教材 —— <a href="architecture.html">系統架構</a> · <a href="db-design.html">資料庫設計</a> · <a href="data-flow.html">資料層目的</a></p>
+<div class="legend">
+	<span class="lg file">檔案產物(綠框=不可變)</span>
+	<span class="lg native">原生推論(Rust in-process)</span>
+	<span class="lg ai">AI 呼叫(API / CLI)</span>
+	<span class="lg ipc">IPC 事件 → 前端</span>
+	<span class="lg db">SQLite 掛點(規劃中)</span>
+</div>
+
+<h2>四站資料流</h2>
+<p class="desc">每站只讀上一站的產物、只寫自己的產物;<code>word.raw.txt</code> 是唯一不可變檔,校正永遠以它為輸入 → 任何一站都可以獨立重跑。</p>
+
+<div class="stage">
+	<h3><span class="num">1</span>下載<span class="page">下載頁 · 課綱決定落點 podcasts/&lt;lang&gt;/</span></h3>
+	<p class="in">輸入:YouTube URL(使用者貼上)</p>
+	<div class="flow">
+		<div class="step"><b>取標題</b><span>yt-dlp --print title</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>清洗+確認</b><span>clean_title · 使用者可改(空白→_)</span></div>
+		<div class="sep">→</div>
+		<div class="step native"><b>yt-dlp 抽音軌</b><span>--extractor-args default client</span></div>
+		<div class="sep">→</div>
+		<div class="step native"><b>ffmpeg 轉檔</b><span>→ mp3</span></div>
+	</div>
+	<div class="artifacts"><span class="label">產物</span><span class="chip">podcast.mp3</span></div>
+	<p class="ipc">download-title · download-progress(% / converting);失敗:資料夾回滾 + ERROR 原因上報 UI</p>
+	<p class="dbhook">掛點:插 Episodes(含 sourceUrl——目前只在 log,入庫補缺)· status=downloaded</p>
+</div>
+
+<div class="handoff">交棒 <b>podcast.mp3</b></div>
+
+<div class="stage">
+	<h3><span class="num">2</span>轉譯<span class="page">轉譯頁 · 全程本機推論</span></h3>
+	<p class="in">輸入:podcast.mp3;語言參數 = 課綱(en/ja)</p>
+	<div class="flow">
+		<div class="step native"><b>ffmpeg</b><span>16kHz mono WAV(暫存)</span></div>
+		<div class="sep">→</div>
+		<div class="step native"><b>whisper.cpp</b><span>Metal · 逐詞時間戳</span></div>
+		<div class="sep">→</div>
+		<div class="step native"><b>Diarization</b><span>pyannote + titanet 分群</span></div>
+		<div class="sep">→</div>
+		<div class="step native"><b>斷行歸戶</b><span>句子優先 · en 60 詞 / ja 60 字元上限</span></div>
+	</div>
+	<div class="artifacts">
+		<span class="label">產物</span>
+		<span class="chip immutable">word.raw.txt(不可變)</span>
+		<span class="chip mut">word.txt(初版)</span>
+		<span class="label">;暫存 WAV 即刪</span>
+	</div>
+	<p class="ipc">transcribe-progress(真實百分比)</p>
+	<p class="dbhook">掛點:Lines 灌入 · durationSec · status=transcribed</p>
+</div>
+
+<div class="handoff">交棒 <b>word.raw.txt</b>(校正的冪等輸入)</div>
+
+<div class="stage">
+	<h3><span class="num">3</span>AI 辨識<span class="page">校正頁 · 校正 + 自動接跑講義</span></h3>
+	<p class="in">輸入:word.raw.txt(行號編碼進 prompt);模式 = API(structured outputs)或本機 Claude CLI</p>
+	<div class="flow">
+		<div class="step ai"><b>校正呼叫</b><span>speakers(真名+性別)+ fixes(逐行)</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>本地套用</b><span>行號驗證 · 前綴替換 · 殘片併回</span></div>
+		<div class="sep">→</div>
+		<div class="step ai"><b>講義呼叫</b><span>大綱分段 + 詞彙 10–20 則(行號錨定)</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>快取落地</b><span>一次生成 · 終身不重跑</span></div>
+	</div>
+	<div class="artifacts">
+		<span class="label">產物</span>
+		<span class="chip mut">word.txt(改寫定版)</span>
+		<span class="chip">correction.json</span>
+		<span class="chip">analysis.json</span>
+	</div>
+	<p class="ipc">correction-done(各頁刷新清單);講義失敗不擋校正,練習頁可手動補</p>
+	<p class="dbhook">掛點:Lines 重灌(定版)· speakers 快取 · status=corrected → analyzed</p>
+</div>
+
+<div class="handoff">交棒 <b>word.txt</b> + <b>correction.json</b> + <b>analysis.json</b></div>
+
+<div class="stage">
+	<h3><span class="num">4</span>練習<span class="page">練習頁 · 逐句跟讀 / 閱讀</span></h3>
+	<p class="in">輸入:word.txt(內容)· correction.json(性別選聲)· voices.json(手動選聲)· analysis.json(講義)</p>
+	<div class="flow">
+		<div class="step"><b>get_lines / get_ruby / get_analysis</b><span>行清單 · 振り仮名(ja)· 講義</span></div>
+		<div class="sep">→</div>
+		<div class="step native"><b>play_line 合成</b><span>en=kokoro · ja=VOICEVOX sidecar</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>WAV+靜音墊片</b><span>0.4s 頭墊 · base64 回前端</span></div>
+		<div class="sep">→</div>
+		<div class="step"><b>逐句跟讀</b><span>鍵盤操作 · 本句重點 · 大綱跳句</span></div>
+	</div>
+	<div class="artifacts">
+		<span class="label">產物</span>
+		<span class="chip">voices.json(手動選聲時)</span>
+		<span class="label">;音訊即合即棄,不落地</span>
+	</div>
+	<p class="ipc">播放異常經 log_ui 落 error.log(靜音卡死可事後追)</p>
+	<p class="dbhook">掛點:LineStats.playCount++ · PracticeSessions 起訖 · 生字標記入 VocabItems——三個學習閉環的入口</p>
+</div>
+
+<h2>集資料夾成長軸</h2>
+<p class="desc">同一個 <code>podcasts/&lt;lang&gt;/&lt;集&gt;/</code> 資料夾,隨管線推進累積的檔案(綠色外框=該站新增);砍掉整個資料夾 = 乾淨移除一集。</p>
+<div class="growth">
+	<div class="row"><span class="when">下載後</span><div class="files"><span class="chip new">podcast.mp3</span></div></div>
+	<div class="row"><span class="when">轉譯後</span><div class="files"><span class="chip">podcast.mp3</span><span class="chip immutable new">word.raw.txt</span><span class="chip mut new">word.txt</span></div></div>
+	<div class="row"><span class="when">AI 辨識後</span><div class="files"><span class="chip">podcast.mp3</span><span class="chip immutable">word.raw.txt</span><span class="chip mut new">word.txt(定版)</span><span class="chip new">correction.json</span><span class="chip new">analysis.json</span></div></div>
+	<div class="row"><span class="when">練習中</span><div class="files"><span class="chip">…以上全部</span><span class="chip new">voices.json(選聲時)</span></div></div>
+</div>
+
+<footer>語言影子練習 · 資料流 · 2026-09 · <a href="architecture.html">系統架構</a> · <a href="db-design.html">資料庫設計</a> · <a href="data-flow.html">資料層目的</a></footer>
+</div>
+</body>
+</html>

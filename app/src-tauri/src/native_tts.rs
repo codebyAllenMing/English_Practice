@@ -128,16 +128,22 @@ pub async fn play_line(
 	index: i32,
 ) -> Result<serde_json::Value, String> {
 	crate::validate_folder(&folder)?;
-	if crate::course_language() == "ja" {
-		return crate::native_voicevox::play_line_ja(&app.state::<crate::native_voicevox::JaTtsState>(), &folder, index)
-			.await;
+	let lang = crate::course_language();
+	let result = if lang == "ja" {
+		crate::native_voicevox::play_line_ja(&app.state::<crate::native_voicevox::JaTtsState>(), &folder, index)
+			.await
+	} else {
+		let state = app.state::<TtsState>();
+		let mut guard = state.0.lock().await;
+		let engine = guard.as_mut().ok_or("練習模式未啟動")?;
+		// 合成為 CPU-bound(短句約 0.5~2s),block_in_place 避免佔住 async worker
+		tokio::task::block_in_place(|| synth_line(engine, &folder, index))
+	};
+	if result.is_ok() {
+		// 練習閉環資料源:句級播放計數(en/ja 共用)
+		crate::db::bump_line_stat(&lang, &folder, index + 1);
 	}
-	let state = app.state::<TtsState>();
-	let mut guard = state.0.lock().await;
-	let engine = guard.as_mut().ok_or("練習模式未啟動")?;
-
-	// 合成為 CPU-bound(短句約 0.5~2s),block_in_place 避免佔住 async worker
-	tokio::task::block_in_place(|| synth_line(engine, &folder, index))
+	result
 }
 
 /// 讀 word.txt 第 index 行(0-based)→ (講者, 內文, 總行數);en/ja 合成路徑共用

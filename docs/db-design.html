@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>語言影子練習 — SQLite 資料庫設計</title>
+<style>
+	:root {
+		--surface: #fafafa;
+		--card: #ffffff;
+		--edge: #e4e4e7;
+		--ink: #18181b;
+		--ink-soft: #52525b;
+		--ink-faint: #a1a1aa;
+		--primary: #2563eb;
+		--ok: #16a34a;
+		--warn: #d97706;
+		--purple: #9333ea;
+		--react: #0891b2;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--surface: #111113;
+			--card: #1b1b1f;
+			--edge: #2e2e33;
+			--ink: #f4f4f5;
+			--ink-soft: #b8b8c0;
+			--ink-faint: #6b6b74;
+			--primary: #60a5fa;
+			--ok: #4ade80;
+			--warn: #fbbf24;
+			--purple: #c084fc;
+			--react: #22d3ee;
+		}
+	}
+	* { margin: 0; padding: 0; box-sizing: border-box; }
+	a { color: var(--primary); }
+	body {
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", sans-serif;
+		background: var(--surface);
+		color: var(--ink);
+		line-height: 1.6;
+		padding: 48px 24px 80px;
+	}
+	.wrap { max-width: 980px; margin: 0 auto; }
+	h1 { font-size: 28px; margin-bottom: 4px; }
+	.subtitle { color: var(--ink-soft); margin-bottom: 16px; }
+	.badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 48px; }
+	.badge {
+		font-size: 12px; padding: 3px 10px; border-radius: 999px;
+		border: 1px solid var(--edge); background: var(--card); color: var(--ink-soft);
+	}
+	h2 {
+		font-size: 20px; margin: 56px 0 6px;
+		padding-left: 12px; border-left: 4px solid var(--primary);
+	}
+	.desc { color: var(--ink-soft); font-size: 14px; margin-bottom: 20px; }
+	code {
+		font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px;
+		background: var(--card); border: 1px solid var(--edge); border-radius: 4px; padding: 0 4px;
+	}
+
+	/* ── 設計原則卡 ── */
+	.principles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+	.principle {
+		background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 16px;
+	}
+	.principle b { display: block; font-size: 14px; margin-bottom: 4px; }
+	.principle span { font-size: 12.5px; color: var(--ink-soft); }
+
+	/* ── ER 圖 ── */
+	.er { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 20px; }
+	.zone { border: 1.5px dashed; border-radius: 12px; padding: 14px 16px 16px; }
+	.zone-derived { border-color: rgba(22, 163, 74, 0.5); }
+	.zone-primary { border-color: rgba(147, 51, 234, 0.5); }
+	.zone-label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; margin-bottom: 10px; }
+	.zone-derived .zone-label { color: var(--ok); }
+	.zone-primary .zone-label { color: var(--purple); }
+	.zone-label small { font-weight: 400; color: var(--ink-faint); margin-left: 8px; }
+	.entities { display: flex; flex-wrap: wrap; gap: 10px; align-items: stretch; }
+	.entity {
+		flex: 1 1 190px; min-width: 190px; border-radius: 10px; overflow: hidden;
+		border: 1px solid var(--edge); background: var(--surface); font-size: 12.5px;
+	}
+	.entity header { padding: 6px 12px; font-weight: 700; font-size: 13px; }
+	.zone-derived .entity header { background: rgba(22, 163, 74, 0.14); color: var(--ok); }
+	.zone-primary .entity header { background: rgba(147, 51, 234, 0.12); color: var(--purple); }
+	.entity.fts header { background: rgba(6, 182, 212, 0.14); color: var(--react); }
+	.entity.fts { border-style: dashed; }
+	.entity ul { list-style: none; padding: 8px 12px; }
+	.entity li { padding: 1px 0; color: var(--ink-soft); }
+	.entity li .k { color: var(--warn); font-weight: 600; }
+	.entity li small { color: var(--ink-faint); }
+	.er-link {
+		text-align: center; color: var(--ink-faint); font-size: 12px; padding: 10px 0;
+		display: flex; align-items: center; justify-content: center; gap: 10px;
+	}
+	.er-link::before, .er-link::after { content: ""; flex: 0 0 90px; border-top: 1.5px dashed var(--edge); }
+	.er-link b { color: var(--ink-soft); }
+
+	/* ── 欄位表 ── */
+	h3.tbl {
+		font-size: 16px; margin: 32px 0 4px; display: flex; align-items: center; gap: 8px;
+	}
+	.tag { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; font-weight: 400; }
+	.tag-derived { color: var(--ok); }
+	.tag-primary { color: var(--purple); }
+	.tag-fts { color: var(--react); }
+	.tbl-desc { font-size: 13px; color: var(--ink-soft); margin-bottom: 10px; }
+	table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 12px; overflow: hidden; }
+	th, td { text-align: left; padding: 8px 14px; font-size: 13.5px; border-bottom: 1px solid var(--edge); vertical-align: top; }
+	th { font-size: 12.5px; color: var(--ink-soft); }
+	td:first-child { white-space: nowrap; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; }
+	td:nth-child(2) { white-space: nowrap; color: var(--ink-faint); font-size: 12.5px; }
+	tr:last-child td { border-bottom: none; }
+	.key { color: var(--warn); font-weight: 700; }
+
+	/* ── 決策卡與流程 ── */
+	.decisions { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+	.decision { background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 14px 16px; }
+	.decision b { display: block; font-size: 14px; margin-bottom: 4px; }
+	.decision span { font-size: 12.5px; color: var(--ink-soft); }
+	.flow { display: flex; flex-wrap: wrap; align-items: stretch; gap: 4px; background: var(--card); border: 1px solid var(--edge); border-radius: 12px; padding: 16px; }
+	.step {
+		flex: 1 1 130px; min-width: 130px; border: 1px solid var(--edge); border-radius: 8px;
+		padding: 8px 10px; font-size: 12.5px; background: var(--surface);
+		display: flex; flex-direction: column; justify-content: center;
+	}
+	.step b { font-size: 13px; }
+	.step span { color: var(--ink-faint); font-size: 11.5px; }
+	.flow .sep { align-self: center; color: var(--ink-faint); font-size: 14px; padding: 0 2px; flex: 0 0 auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>SQLite 資料庫設計</h1>
+<p class="subtitle">語言影子練習 — 索引與關聯層(檔案仍是內容的唯一真相)· <a href="architecture.html">系統架構</a> · <a href="data-flow.html">資料層目的</a></p>
+<div class="badges">
+	<span class="badge">SQLite(rusqlite bundled)</span>
+	<span class="badge">WAL 模式</span>
+	<span class="badge">PRAGMA user_version 遷移</span>
+	<span class="badge">FTS5 全文檢索</span>
+	<span class="badge">表 PascalCase・欄位 camelCase</span>
+</div>
+
+<h2>設計原則</h2>
+<p class="desc">四條原則決定了所有表的形狀;違反任何一條的設計都會在重建或擴充時付出代價。</p>
+<div class="principles">
+	<div class="principle"><b>檔案 = 內容真相</b><span>mp3 / word.txt / correction.json / analysis.json 留在資料夾;DB 只存索引、關聯與使用者行為</span></div>
+	<div class="principle"><b>表分兩類</b><span>可重建(derived):掃資料夾即可重灌。不可重建(primary):使用者行為產生,DB 即唯一真相</span></div>
+	<div class="principle"><b>自然鍵防孤兒</b><span>primary 表以 (language, folder) 指回集數,不綁 Episodes.id——重建後 id 改變也不會斷鏈</span></div>
+	<div class="principle"><b>加法優先</b><span>新需求=加欄位/加表/加 index,不改既有欄位;SRS 等未來欄位刻意不進 v1</span></div>
+</div>
+
+<h2>實體關聯圖</h2>
+<p class="desc">上半綠區可隨時砍掉重建;下半紫區是使用者資產,重建流程完全不碰。</p>
+<div class="er">
+	<div class="zone zone-derived">
+		<div class="zone-label">可重建(DERIVED)<small>掃 podcasts/&lt;lang&gt;/ 即可重灌</small></div>
+		<div class="entities">
+			<div class="entity">
+				<header>Episodes 集數索引</header>
+				<ul>
+					<li><span class="k">PK</span> id</li>
+					<li><span class="k">UQ</span> language + folder <small>(自然鍵)</small></li>
+					<li>title・sourceUrl・status</li>
+					<li>durationSec・speakers</li>
+					<li>createDate・updateDate</li>
+				</ul>
+			</div>
+			<div class="entity">
+				<header>Lines 逐句鏡射</header>
+				<ul>
+					<li><span class="k">PK</span> id</li>
+					<li><span class="k">FK</span> episodeId → Episodes <small>(同區,一起重建)</small></li>
+					<li><span class="k">UQ</span> episodeId + lineNo</li>
+					<li>speaker・content</li>
+				</ul>
+			</div>
+			<div class="entity fts">
+				<header>LinesFts(FTS5 虛擬表)</header>
+				<ul>
+					<li>external content → Lines</li>
+					<li>tokenizer: trigram <small>(CJK 可搜)</small></li>
+					<li>trigger 同步增刪改</li>
+				</ul>
+			</div>
+		</div>
+	</div>
+	<div class="er-link"><b>(language, folder)</b> 自然鍵邏輯關聯・非 FK</div>
+	<div class="zone zone-primary">
+		<div class="zone-label">不可重建(PRIMARY)<small>使用者行為產生,DB 即唯一真相</small></div>
+		<div class="entities">
+			<div class="entity">
+				<header>VocabItems 生字本</header>
+				<ul>
+					<li><span class="k">PK</span> id</li>
+					<li>language + folder + lineNo</li>
+					<li>term・reading・meaning</li>
+					<li>source(user/analysis)</li>
+					<li>synced・addedDate</li>
+				</ul>
+			</div>
+			<div class="entity">
+				<header>Messages tutor 對話</header>
+				<ul>
+					<li><span class="k">PK</span> id</li>
+					<li>language + folder</li>
+					<li>role・content</li>
+					<li>anchorLine・createDate</li>
+				</ul>
+			</div>
+			<div class="entity">
+				<header>PracticeSessions 練習履歷</header>
+				<ul>
+					<li><span class="k">PK</span> id</li>
+					<li>language + folder</li>
+					<li>startDate・endDate</li>
+					<li>linesPlayed</li>
+				</ul>
+			</div>
+			<div class="entity">
+				<header>LineStats 句級統計</header>
+				<ul>
+					<li><span class="k">PK</span> language + folder + lineNo</li>
+					<li>playCount <small>(重播多=難點)</small></li>
+					<li>lastPlayed</li>
+				</ul>
+			</div>
+		</div>
+	</div>
+</div>
+
+<h2>欄位定義</h2>
+
+<h3 class="tbl">Episodes <span class="tag tag-derived">可重建</span></h3>
+<p class="tbl-desc">每集一列的索引;真相在資料夾結構與檔案,所有欄位可由掃描推導(sourceUrl 例外,見說明)。</p>
+<table>
+	<tr><th>欄位</th><th>型別</th><th>功能</th></tr>
+	<tr><td class="key">id</td><td>INTEGER PK</td><td>內部流水號,只給 Lines join 用(兩表同屬可重建區,一起重灌所以安全)</td></tr>
+	<tr><td>language</td><td>TEXT NOT NULL</td><td>課綱語系 en / ja,對應 <code>podcasts/&lt;lang&gt;/</code> 路徑段</td></tr>
+	<tr><td>folder</td><td>TEXT NOT NULL</td><td>集資料夾名;<b>UNIQUE(language, folder)</b> 即對外自然鍵</td></tr>
+	<tr><td>title</td><td>TEXT</td><td>顯示標題(目前=folder;保留給日後存 YouTube 原始標題)</td></tr>
+	<tr><td>sourceUrl</td><td>TEXT</td><td>來源影片網址。<b>目前只在 log,下載完成時要順手入庫</b>;重建時撈不回,允許空</td></tr>
+	<tr><td>status</td><td>TEXT</td><td>downloaded → transcribed → corrected → analyzed;由檔案存在性推導的<b>快取</b>(mp3 / word.txt / correction.json / analysis.json),列表頁免掃檔案</td></tr>
+	<tr><td>durationSec</td><td>REAL</td><td>音檔長度;轉譯時 whisper 已知,順手入庫</td></tr>
+	<tr><td>speakers</td><td>TEXT(JSON)</td><td>correction.json 講者摘要快取,清單頁顯示用</td></tr>
+	<tr><td>createDate / updateDate</td><td>TEXT(ISO)</td><td>建檔 / 異動時間</td></tr>
+</table>
+
+<h3 class="tbl">Lines <span class="tag tag-derived">可重建</span></h3>
+<p class="tbl-desc">word.txt 的逐句鏡射;校正完成後整批重灌。lineNo 與 word.txt / 講義 / 生字錨定完全對齊。</p>
+<table>
+	<tr><th>欄位</th><th>型別</th><th>功能</th></tr>
+	<tr><td class="key">id</td><td>INTEGER PK</td><td>FTS5 external-content 需要的 rowid 錨</td></tr>
+	<tr><td>episodeId</td><td>INTEGER FK</td><td>歸屬集數(ON DELETE CASCADE)</td></tr>
+	<tr><td>lineNo</td><td>INTEGER</td><td><b>1-based</b>;UNIQUE(episodeId, lineNo)。全系統行號的共同座標</td></tr>
+	<tr><td>speaker</td><td>TEXT</td><td>講者名(校正後的真名)</td></tr>
+	<tr><td>content</td><td>TEXT</td><td>內文(去 <code>[Speaker]:</code> 前綴)</td></tr>
+</table>
+
+<h3 class="tbl">LinesFts <span class="tag tag-fts">FTS5 虛擬表</span></h3>
+<p class="tbl-desc">跨集全文檢索(「thunder 在哪幾集出現過」→ 點結果跳練習頁該句)。external content 指向 Lines,以 trigger 同步;tokenizer 用 <b>trigram</b>——unicode61 不切 CJK,trigram 讓日文/中文子字串搜尋直接可用,英文亦可。</p>
+
+<h3 class="tbl">VocabItems <span class="tag tag-primary">primary・生字本</span></h3>
+<p class="tbl-desc">練習中手動標記 + 講義匯入的單字;之後的間隔複習、匯出都長在這張表上。</p>
+<table>
+	<tr><th>欄位</th><th>型別</th><th>功能</th></tr>
+	<tr><td class="key">id</td><td>INTEGER PK</td><td></td></tr>
+	<tr><td>language / folder</td><td>TEXT</td><td>自然鍵指回集數;集數重建、id 改變都不受影響</td></tr>
+	<tr><td>lineNo</td><td>INTEGER</td><td>出處句(點 → 跳練習頁該句)</td></tr>
+	<tr><td>term</td><td>TEXT NOT NULL</td><td>單字 / 片語</td></tr>
+	<tr><td>reading</td><td>TEXT</td><td>讀音(ja 用;en 空)</td></tr>
+	<tr><td>meaning</td><td>TEXT</td><td>解釋;手動標記時可從講義 vocab 帶入,或留空後補</td></tr>
+	<tr><td>source</td><td>TEXT</td><td><code>user</code>(手動標記)/ <code>analysis</code>(講義匯入);「AI 挑的 ∩ 我標的 = 重點複習區」疊顯靠它</td></tr>
+	<tr><td>synced</td><td>INTEGER 0/1</td><td>outbox 旗標;日後匯出 / 外部同步用,現階段先躺著</td></tr>
+	<tr><td>addedDate</td><td>TEXT(ISO)</td><td>標記時間</td></tr>
+</table>
+<p class="tbl-desc">※ SRS 欄位(dueDate / interval / ease)刻意不進 v1;間隔複習成立時走 migration 加法。</p>
+
+<h3 class="tbl">Messages <span class="tag tag-primary">primary・tutor 對話</span></h3>
+<p class="tbl-desc">依集隔離的 AI 問答紀錄——「不會很泛」的邊界;跨 session 保留,下次練同一集 bot 記得你問過什麼。</p>
+<table>
+	<tr><th>欄位</th><th>型別</th><th>功能</th></tr>
+	<tr><td class="key">id</td><td>INTEGER PK</td><td></td></tr>
+	<tr><td>language / folder</td><td>TEXT</td><td>自然鍵指回集數</td></tr>
+	<tr><td>role</td><td>TEXT</td><td>user / assistant</td></tr>
+	<tr><td>content</td><td>TEXT</td><td>訊息內容</td></tr>
+	<tr><td>anchorLine</td><td>INTEGER</td><td>提問當下停在哪句——bot 回答「這裡為什麼…」時「這裡」的所指</td></tr>
+	<tr><td>createDate</td><td>TEXT(ISO)</td><td></td></tr>
+</table>
+<div style="margin-top:10px; padding:14px 16px; background:var(--card); border:1px solid var(--edge); border-left:3px solid var(--purple); border-radius:12px; font-size:13px; color:var(--ink-soft);">
+	<b style="color:var(--ink); display:block; margin-bottom:6px;">Tutor bot 的讀取規則(每次提問的 context 組裝)</b>
+	<table style="border-radius:0; background:transparent;">
+		<tr><th>來源</th><th>層</th><th>提供什麼</th></tr>
+		<tr><td>word.txt</td><td>檔案</td><td>整集逐字稿全文塞進 prompt(6~8k tokens,不做 RAG——全文比檢索準;API 模式當固定前綴吃 prompt caching)</td></tr>
+		<tr><td>analysis.json</td><td>檔案</td><td>講義(大綱+詞彙)——bot 開口即精準,不重新理解本集</td></tr>
+		<tr><td>anchorLine</td><td>前端當下</td><td>目前停在哪句,「這句」有所指</td></tr>
+		<tr><td>Messages(本集)</td><td>DB</td><td>歷史問答——多輪連貫 + 跨 session 記憶</td></tr>
+		<tr><td>VocabItems(選讀)</td><td>DB</td><td>你標過的生字——個人化,照顧弱點</td></tr>
+	</table>
+	<p style="margin-top:8px;">寫入僅 Messages(一問一答各一列,含 anchorLine)。<b>刻意不讀</b>:音檔、其他集逐字稿——對話依集隔離,跨集感知日後走 FTS 查詢工具而非塞 context。呼叫走與校正/講義同一套 <code>llm_via_api / llm_via_cli</code> 雙模式。</p>
+</div>
+
+<h3 class="tbl">PracticeSessions <span class="tag tag-primary">primary・練習履歷</span></h3>
+<table>
+	<tr><th>欄位</th><th>型別</th><th>功能</th></tr>
+	<tr><td class="key">id</td><td>INTEGER PK</td><td></td></tr>
+	<tr><td>language / folder</td><td>TEXT</td><td>練了哪集</td></tr>
+	<tr><td>startDate / endDate</td><td>TEXT(ISO)</td><td>一次練習的起訖;連續天數 / 週統計的資料源</td></tr>
+	<tr><td>linesPlayed</td><td>INTEGER</td><td>本次播放句次數</td></tr>
+</table>
+
+<h3 class="tbl">LineStats <span class="tag tag-primary">primary・句級統計</span></h3>
+<table>
+	<tr><th>欄位</th><th>型別</th><th>功能</th></tr>
+	<tr><td class="key">language / folder / lineNo</td><td>複合 PK</td><td>句座標</td></tr>
+	<tr><td>playCount</td><td>INTEGER</td><td>累計播放次數;<b>重播最多 = 難點</b>,聚合出「本集難句 Top N」與跨集弱點清單</td></tr>
+	<tr><td>lastPlayed</td><td>TEXT(ISO)</td><td>最後播放時間</td></tr>
+</table>
+
+<h2>架構決策</h2>
+<div class="decisions">
+	<div class="decision"><b>落地位置</b><span><code>data_dir()/app.db</code>(dev=專案根、release=App Support);WAL 模式;<code>.gitignore</code> 加 <code>*.db</code>。Rust 端 rusqlite(bundled),零系統依賴,延續全靜態哲學</span></div>
+	<div class="decision"><b>Migration</b><span><code>PRAGMA user_version</code> + 啟動時依序執行(Flyway 同構);每個未來功能 = 遷移 N+1,加法優先</span></div>
+	<div class="decision"><b>寫入時機</b><span>下載完成→插 Episodes(含 sourceUrl,補掉現在不落地的缺口);轉譯完成→灌 Lines;校正完成→重灌 Lines + speakers 快取;各步同步更新 status</span></div>
+	<div class="decision"><b>命名慣例</b><span>表 PascalCase 複數、欄位 camelCase(.NET 風格);時間一律 ISO 8601 文字</span></div>
+</div>
+
+<h2>重建流程(保險絲)</h2>
+<p class="desc">DB 損毀或 schema 大改時的逃生路線;primary 四表全程不碰。</p>
+<div class="flow">
+	<div class="step"><b>掃描</b><span>podcasts/&lt;lang&gt;/*/</span></div>
+	<div class="sep">→</div>
+	<div class="step"><b>清空 derived</b><span>Episodes・Lines・LinesFts</span></div>
+	<div class="sep">→</div>
+	<div class="step"><b>回填集數</b><span>依檔案推導 status / speakers</span></div>
+	<div class="sep">→</div>
+	<div class="step"><b>回填逐句</b><span>word.txt → Lines → FTS</span></div>
+	<div class="sep">→</div>
+	<div class="step"><b>完成</b><span>primary 表原封不動,自然鍵自動接回</span></div>
+</div>
+
+</div>
+</body>
+</html>

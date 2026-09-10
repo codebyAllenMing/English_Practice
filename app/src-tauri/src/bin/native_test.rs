@@ -21,9 +21,28 @@ fn main() {
 		Some("download") => run_download(&args),
 		Some("models") => run_models(&args),
 		Some("analyze") => run_analyze(&args),
+		Some("db") => app_lib::db::rebuild_index(),
+		Some("ask") => run_ask(&args),
 		Some(folder) => run_transcribe(folder),
 		None => {
 			eprintln!("用法: native_test <folder> | tts <folder> <line-index> <out.wav> | sid <sid> <out.wav> | title <url> | download <url> <folder> | models [data-dir] | analyze <folder>");
+			std::process::exit(1);
+		}
+	}
+}
+
+// tutor 問答測試:ask <folder> <question> [anchorLine]
+fn run_ask(args: &[String]) {
+	let (Some(folder), Some(question)) = (args.get(2), args.get(3)) else {
+		eprintln!("用法: native_test ask <folder> <question> [anchorLine]");
+		std::process::exit(1);
+	};
+	let anchor: i32 = args.get(4).and_then(|s| s.parse().ok()).unwrap_or(1);
+	let rt = tokio::runtime::Runtime::new().expect("建立 runtime 失敗");
+	match rt.block_on(app_lib::tutor::ask_tutor(folder.clone(), question.clone(), anchor)) {
+		Ok(res) => println!("ANSWER:\n{}", res["answer"].as_str().unwrap_or("")),
+		Err(e) => {
+			eprintln!("ERROR: {}", e);
 			std::process::exit(1);
 		}
 	}
