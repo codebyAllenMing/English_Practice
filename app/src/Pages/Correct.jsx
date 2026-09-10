@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { Sparkles, Monitor, Cloud } from 'lucide-react'
 import Settings from '../Components/Settings'
 import ConfirmDeleteDialog from '../Components/ConfirmDeleteDialog'
 import { useCorrection } from '../Hooks/useCorrection'
@@ -87,7 +88,9 @@ function Correct() {
         if (d.corrected) {
             return (
                 <span className="flex items-center gap-2 shrink-0">
-                    <span className="text-xs text-purple-600 dark:text-purple-400">✨ 已校正</span>
+                    <span className="text-xs text-purple-600 dark:text-purple-400 inline-flex items-center gap-1">
+                        <Sparkles size={12} />已校正
+                    </span>
                     <button
                         className="text-xs text-ink-faint hover:text-ink-soft underline disabled:opacity-50"
                         onClick={() => startCorrect(d.name)}
@@ -149,8 +152,16 @@ function Correct() {
 
             <div className="mb-6 flex items-center gap-2 text-sm">
                 <span className="text-ink-faint">目前模式:</span>
-                <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${mode === 'cli' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300' : 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300'}`}>
-                    {mode === 'cli' ? '🖥 本機 Claude CLI(訂閱額度)' : '☁️ Anthropic API(Key 計費)'}
+                <span className={`px-2 py-0.5 rounded-full text-xs font-medium inline-flex items-center gap-1 ${mode === 'cli' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300' : 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300'}`}>
+                    {mode === 'cli' ? (
+                        <>
+                            <Monitor size={12} />本機 Claude CLI(訂閱額度)
+                        </>
+                    ) : (
+                        <>
+                            <Cloud size={12} />Anthropic API(Key 計費)
+                        </>
+                    )}
                 </span>
                 <span className="text-xs text-ink-faint">可用右側「設定」切換</span>
             </div>

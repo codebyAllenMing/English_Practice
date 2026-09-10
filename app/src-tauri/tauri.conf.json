@@ -13,8 +13,12 @@
     "windows": [
       {
         "title": "語言影子練習",
-        "width": 800,
-        "height": 600,
+        "width": 1200,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 640,
+        "center": true,
+        "visible": false,
         "resizable": true,
         "fullscreen": false
       }

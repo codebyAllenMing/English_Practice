@@ -24,9 +24,64 @@ fn main() {
 		Some("db") => app_lib::db::rebuild_index(),
 		Some("ask") => run_ask(&args),
 		Some("lookup") => run_lookup(&args),
+		Some("search") => run_search(&args),
+		Some("due") => run_due(),
+		Some("review") => run_review(&args),
 		Some(folder) => run_transcribe(folder),
 		None => {
 			eprintln!("用法: native_test <folder> | tts <folder> <line-index> <out.wav> | sid <sid> <out.wav> | title <url> | download <url> <folder> | models [data-dir] | analyze <folder>");
+			std::process::exit(1);
+		}
+	}
+}
+
+// 全文檢索測試:search <query>
+fn run_search(args: &[String]) {
+	let q = args.get(2).cloned().unwrap_or_default();
+	match app_lib::db::search_lines(q) {
+		Ok(rows) => {
+			for r in &rows {
+				println!("{} L{}: {}", r["folder"].as_str().unwrap_or(""), r["lineNo"], r["content"].as_str().unwrap_or(""));
+			}
+			println!("共 {} 筆", rows.len());
+		}
+		Err(e) => {
+			eprintln!("ERROR: {}", e);
+			std::process::exit(1);
+		}
+	}
+}
+
+// SRS 作答測試:review <id> <1|0>(1=記得)
+fn run_review(args: &[String]) {
+	let (Some(id), Some(ans)) = (args.get(2), args.get(3)) else {
+		eprintln!("用法: native_test review <id> <1|0>");
+		std::process::exit(1);
+	};
+	match app_lib::db::review_vocab(id.parse().expect("id 需為整數"), ans == "1") {
+		Ok(res) => println!("REVIEW: {}", res),
+		Err(e) => {
+			eprintln!("ERROR: {}", e);
+			std::process::exit(1);
+		}
+	}
+}
+
+// SRS 到期清單測試
+fn run_due() {
+	match app_lib::db::due_vocab() {
+		Ok(rows) => {
+			for r in &rows {
+				println!(
+					"#{} {} (複習 {} 次) [{} L{}] {}",
+					r["id"], r["term"].as_str().unwrap_or(""), r["reviewCount"],
+					r["folder"].as_str().unwrap_or(""), r["lineNo"], r["meaning"].as_str().unwrap_or("")
+				);
+			}
+			println!("到期 {} 筆", rows.len());
+		}
+		Err(e) => {
+			eprintln!("ERROR: {}", e);
 			std::process::exit(1);
 		}
 	}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { Sparkles } from 'lucide-react'
 import ConfirmDeleteDialog from '../Components/ConfirmDeleteDialog'
 import { useCorrection } from '../Hooks/useCorrection'
 
@@ -305,7 +306,9 @@ function Download() {
                                         </span>
                                     ) : d.corrected ? (
                                         <span className="flex items-center gap-2 shrink-0">
-                                            <span className="text-xs text-purple-600 dark:text-purple-400">✨ 已校正</span>
+                                            <span className="text-xs text-purple-600 dark:text-purple-400 inline-flex items-center gap-1">
+                                                <Sparkles size={12} />已校正
+                                            </span>
                                             <button
                                                 className="text-xs text-ink-faint hover:text-ink-soft underline disabled:opacity-50"
                                                 onClick={() => startCorrect(d.name)}

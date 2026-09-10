@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { Bot, X } from 'lucide-react'
 
 // 練習頁 AI 助教:依集隔離、anchorLine 自動夾帶(「這句」有所指)。
 // 歷史對話存 Messages 表(跨 session 記憶);CLI 模式一次問答約十幾秒。
@@ -39,17 +40,31 @@ function TutorChat({ folder, anchorLine }) {
     return (
         <>
             <button
-                className="fixed bottom-6 left-6 z-40 w-12 h-12 rounded-full bg-primary text-white shadow-lg hover:bg-primary-hover text-xl"
+                className="fixed bottom-6 left-6 z-40 w-12 h-12 rounded-full bg-primary text-white shadow-lg hover:bg-primary-hover hover:scale-105 active:scale-95 transition-transform flex items-center justify-center"
                 onClick={() => setOpen(!open)}
                 title="問 AI 助教(針對本集)"
             >
-                🤖
+                <span className={`transition-transform duration-200 ${open ? 'rotate-90' : ''}`}>
+                    {open ? <X size={20} /> : <Bot size={22} />}
+                </span>
+                {asking && !open && (
+                    <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3" title="回答生成中">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-400" />
+                    </span>
+                )}
             </button>
             {open && (
                 <div className="fixed bottom-20 left-6 z-40 w-[380px] max-h-[70vh] bg-surface border border-edge rounded-xl shadow-xl flex flex-col">
                     <div className="px-4 py-3 border-b border-edge flex items-center justify-between shrink-0">
-                        <p className="text-sm font-bold">AI 助教<span className="text-xs text-ink-faint font-normal ml-2">只回答本集內容</span></p>
-                        <button className="text-ink-faint hover:text-ink-soft" onClick={() => setOpen(false)}>✕</button>
+                        <p className="text-sm font-bold flex items-center gap-1.5">
+                            <span className="text-primary"><Bot size={16} /></span>
+                            AI 助教
+                            <span className="text-xs text-ink-faint font-normal">只回答本集內容</span>
+                        </p>
+                        <button className="text-ink-faint hover:text-ink-soft" onClick={() => setOpen(false)}>
+                            <X size={14} />
+                        </button>
                     </div>
                     <div className="flex-1 overflow-y-auto p-3 space-y-2 min-h-[140px]">
                         {msgs.length === 0 && !asking && (

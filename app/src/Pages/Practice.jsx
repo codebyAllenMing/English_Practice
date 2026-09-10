@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { Play, FileText, Volume2, Search, BookOpen, Check, X, Star, PartyPopper } from 'lucide-react'
 import { useLoading } from '../Hooks/useLoading'
 import VoiceDialog from '../Components/VoiceDialog'
 import TutorChat from '../Components/TutorChat'
@@ -27,6 +28,21 @@ function RubyText({ segs, fallback }) {
         ) : (
             <span key={i}>{surface}</span>
         )
+    )
+}
+
+// 檢索結果的命中片段高亮(大小寫不敏感,取第一個命中)
+function HighlightHit({ content, query }) {
+    const idx = content.toLowerCase().indexOf(query.toLowerCase())
+    if (idx < 0) return content
+    return (
+        <>
+            {content.slice(0, idx)}
+            <mark className="bg-amber-200/80 dark:bg-amber-700/60 rounded px-0.5 text-inherit">
+                {content.slice(idx, idx + query.length)}
+            </mark>
+            {content.slice(idx + query.length)}
+        </>
     )
 }
 
@@ -90,19 +106,48 @@ function Practice() {
     const [wordCard, setWordCard] = useState(null) // 點詞後的詞卡 {term, reading, meaning, loading}
     const [allVocab, setAllVocab] = useState([]) // 清單頁生字本(目前課綱全部)
     const [vocabOpen, setVocabOpen] = useState(false)
+    const [topLines, setTopLines] = useState([]) // 本集重播排行(playCount ≥ 2)
+    const [topOpen, setTopOpen] = useState(false)
+    const [searchQuery, setSearchQuery] = useState('') // 清單頁跨集全文檢索
+    const [searchResults, setSearchResults] = useState(null) // null = 未搜尋
+    const [dueList, setDueList] = useState([]) // SRS 今日到期生字
+    const [reviewQueue, setReviewQueue] = useState([]) // 進行中的複習佇列(開始時定格,答錯的下一輪再出)
+    const [reviewIdx, setReviewIdx] = useState(0)
+    const [reviewOpen, setReviewOpen] = useState(false)
+    const [showAnswer, setShowAnswer] = useState(false)
     const audioRef = useRef(null)
     const listRef = useRef(null)
     const lineRefs = useRef([])
+    const sessionRef = useRef(null) // 進行中的 PracticeSession {id, played}
     const loading = useLoading()
 
     useEffect(() => {
         invoke('list_transcribed').then(setPodcasts).catch(console.error)
     }, [])
 
-    // 生字本:回到清單頁時重載(練習中新標記的會出現)
+    // 生字本+SRS 到期數:回到清單頁時重載(練習中新標記的會出現)
     useEffect(() => {
-        if (!selected) invoke('list_vocab', { folder: null }).then(setAllVocab).catch(() => {})
+        if (!selected) {
+            invoke('list_vocab', { folder: null }).then(setAllVocab).catch(() => {})
+            invoke('due_vocab').then(setDueList).catch(() => {})
+        }
     }, [selected])
+
+    // 跨集全文檢索:300ms debounce;清空輸入即收起結果
+    useEffect(() => {
+        const q = searchQuery.trim()
+        if (!q) {
+            setSearchResults(null)
+            return
+        }
+        const t = setTimeout(() => {
+            invoke('search_lines', { query: q }).then(setSearchResults).catch(() => setSearchResults([]))
+        }, 300)
+        return () => clearTimeout(t)
+    }, [searchQuery])
+
+    // 元件卸載(切到其他 tab)也要把未結束的 session 收掉
+    useEffect(() => () => endSession(), [])
 
     const speakerColors = useMemo(() => {
         const map = {}
@@ -206,17 +251,58 @@ function Practice() {
         }
     }
 
-    const handlePractice = async (name) => {
+    // ── SRS 複習流程 ──
+    const startReview = () => {
+        setReviewQueue(dueList)
+        setReviewIdx(0)
+        setShowAnswer(false)
+        setReviewOpen(true)
+    }
+
+    const closeReview = () => {
+        setReviewOpen(false)
+        invoke('due_vocab').then(setDueList).catch(() => {})
+    }
+
+    // 記得 → 間隔拉長;忘記 → 當天重出(佇列跑完後重新撈,忘記的會再進來)
+    const handleReviewAnswer = async (remembered) => {
+        const card = reviewQueue[reviewIdx]
+        try {
+            await invoke('review_vocab', { id: card.id, remembered })
+        } catch (err) {
+            console.error(err)
+        }
+        setShowAnswer(false)
+        const next = reviewIdx + 1
+        setReviewIdx(next)
+        if (next >= reviewQueue.length) invoke('due_vocab').then(setDueList).catch(() => {})
+    }
+
+    // 結束 PracticeSession(handleBack 與元件卸載共用;重複呼叫無害)
+    const endSession = () => {
+        const s = sessionRef.current
+        sessionRef.current = null
+        if (s) invoke('end_session', { id: s.id, linesPlayed: s.played }).catch(() => {})
+    }
+
+    // initialIndex:從搜尋結果進來時直接定位到該句(不自動播,按 ← 重複即播當句)
+    const handlePractice = async (name, initialIndex = 0) => {
         setSelected(name)
         setView('practice')
-        setCurrentIndex(0)
+        setCurrentIndex(initialIndex)
         setCurrentData(null)
         setReady(false)
         setError('')
         setAnalysis(null)
         setOutlineOpen(false)
+        setTopLines([])
+        setTopOpen(false)
         invoke('get_analysis', { folder: name }).then(setAnalysis).catch(() => {})
         invoke('list_vocab', { folder: name }).then(setVocabMarks).catch(() => {})
+        invoke('top_lines', { folder: name, n: 10 }).then(setTopLines).catch(() => {})
+        invoke('start_session', { folder: name })
+            .then((id) => { sessionRef.current = { id, played: 0 } })
+            .catch(() => {})
         loading(true, '載入語音模型...')
         try {
             const l = await invoke('get_lines', { folder: name })
@@ -281,6 +367,7 @@ function Practice() {
     const handleBack = async () => {
         if (view === 'practice') {
             await invoke('stop_practice').catch(console.error)
+            endSession()
         }
         setSelected('')
         setView('')
@@ -298,6 +385,7 @@ function Practice() {
         setWordCard(null)
         try {
             const result = await invoke('play_line', { folder: selected, index })
+            if (sessionRef.current) sessionRef.current.played += 1
             setCurrentData(result)
             const audio = new Audio(`data:audio/wav;base64,${result.audio}`)
             audioRef.current = audio
@@ -370,6 +458,45 @@ function Practice() {
             <div>
                 <h1 className="text-2xl font-bold mb-6">練習</h1>
                 {error && <p className="text-sm text-red-500 dark:text-red-400 mb-4">{error}</p>}
+                <div className="mb-6">
+                    <div className="relative">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" />
+                        <input
+                            type="text"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="搜尋所有逐字稿…(點結果直接跳到該句)"
+                            className="w-full pl-9 pr-3 py-2 text-sm bg-card border border-edge rounded-lg focus:outline-none focus:border-edge-strong placeholder:text-ink-faint/60"
+                        />
+                    </div>
+                    {searchResults && (
+                        <div className="mt-2 bg-card border border-edge rounded-lg max-h-[320px] overflow-y-auto divide-y divide-edge">
+                            {searchResults.length === 0 ? (
+                                <p className="text-xs text-ink-faint px-3 py-2.5">沒有符合的句子</p>
+                            ) : (
+                                searchResults.map((r, i) => (
+                                    <button
+                                        key={i}
+                                        className="w-full text-left px-3 py-2.5 text-sm hover:bg-muted flex gap-3 items-baseline"
+                                        onClick={() => {
+                                            const line = r.lineNo
+                                            setSearchQuery('')
+                                            setSearchResults(null)
+                                            handlePractice(r.folder, line - 1)
+                                        }}
+                                    >
+                                        <span className="text-ink-faint text-xs shrink-0 max-w-[160px] truncate">
+                                            {r.folder} L{r.lineNo}
+                                        </span>
+                                        <span className="flex-1 text-ink-soft">
+                                            <HighlightHit content={r.content} query={searchQuery.trim()} />
+                                        </span>
+                                    </button>
+                                ))
+                            )}
+                        </div>
+                    )}
+                </div>
                 {podcasts.length === 0 ? (
                     <p className="text-ink-faint text-sm">沒有可練習的 podcast</p>
                 ) : (
@@ -384,23 +511,23 @@ function Practice() {
                                 </div>
                                 <div className="flex gap-2 mt-3">
                                     <button
-                                        className="flex-1 px-2 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-hover"
+                                        className="flex-1 px-2 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-hover flex items-center justify-center gap-1"
                                         onClick={() => handlePractice(name)}
                                     >
-                                        ▶ 練習
+                                        <Play size={13} />練習
                                     </button>
                                     <button
-                                        className="flex-1 px-2 py-1.5 text-xs text-ink-soft border border-edge-strong rounded-md hover:bg-muted"
+                                        className="flex-1 px-2 py-1.5 text-xs text-ink-soft border border-edge-strong rounded-md hover:bg-muted flex items-center justify-center gap-1"
                                         onClick={() => handleRead(name)}
                                     >
-                                        📄 文字
+                                        <FileText size={13} />文字
                                     </button>
                                     <button
-                                        className="px-2 py-1.5 text-xs text-ink-soft border border-edge-strong rounded-md hover:bg-muted shrink-0"
+                                        className="px-2 py-1.5 text-xs text-ink-soft border border-edge-strong rounded-md hover:bg-muted shrink-0 flex items-center"
                                         onClick={() => setVoiceFolder(name)}
                                         title="聲音設定"
                                     >
-                                        🔊
+                                        <Volume2 size={13} />
                                     </button>
                                 </div>
                             </div>
@@ -408,6 +535,15 @@ function Practice() {
                     </div>
                 )}
                 <div className="mt-8">
+                    {dueList.length > 0 && (
+                        <button
+                            className="w-full text-left text-sm px-3 py-2 mb-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40 text-amber-900 dark:text-amber-200 rounded-lg hover:bg-amber-100/70 dark:hover:bg-amber-900/40"
+                            onClick={startReview}
+                        >
+                            <BookOpen size={16} className="inline align-[-3px] mr-1.5" />
+                            今日複習（{dueList.length} 個生字到期）
+                        </button>
+                    )}
                     <button
                         className="w-full text-left text-sm text-ink-soft px-3 py-2 bg-card border border-edge rounded-lg hover:bg-muted"
                         onClick={() => setVocabOpen(!vocabOpen)}
@@ -416,7 +552,9 @@ function Practice() {
                     </button>
                     {vocabOpen &&
                         (allVocab.length === 0 ? (
-                            <p className="text-xs text-ink-faint mt-2 px-1">練習時點句子裡的單字、或按講義卡的 ☆ 即可收藏</p>
+                            <p className="text-xs text-ink-faint mt-2 px-1">
+                                練習時點句子裡的單字、或按講義卡的 <Star size={12} className="inline align-[-1.5px]" /> 即可收藏
+                            </p>
                         ) : (
                             <div className="mt-2 divide-y divide-edge bg-card border border-edge rounded-lg">
                                 {allVocab.map((v) => (
@@ -426,18 +564,18 @@ function Practice() {
                                         <span className="text-ink-soft flex-1 text-xs truncate">{v.meaning}</span>
                                         <span className="text-ink-faint text-xs shrink-0">{v.folder} L{v.lineNo}</span>
                                         <button
-                                            className="text-ink-faint/60 hover:text-ink-soft shrink-0 text-xs"
+                                            className="text-ink-faint/60 hover:text-ink-soft shrink-0 self-center"
                                             title="發音"
                                             onClick={() => playTerm(v.term)}
                                         >
-                                            🔊
+                                            <Volume2 size={14} />
                                         </button>
                                         <button
-                                            className="text-ink-faint/60 hover:text-red-500 dark:hover:text-red-400 shrink-0 text-xs"
+                                            className="text-ink-faint/60 hover:text-red-500 dark:hover:text-red-400 shrink-0 self-center"
                                             title="移除"
                                             onClick={() => handleRemoveVocab(v)}
                                         >
-                                            ✕
+                                            <X size={14} />
                                         </button>
                                     </div>
                                 ))}
@@ -445,6 +583,93 @@ function Practice() {
                         ))}
                 </div>
                 {voiceFolder && <VoiceDialog folder={voiceFolder} onClose={() => setVoiceFolder('')} />}
+                {reviewOpen && (
+                    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={closeReview}>
+                        <div
+                            className="bg-card border border-edge rounded-xl p-6 w-[440px] max-w-[90vw]"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {reviewIdx < reviewQueue.length ? (
+                                <>
+                                    <p className="text-xs text-ink-faint mb-4">
+                                        複習 {reviewIdx + 1} / {reviewQueue.length}
+                                    </p>
+                                    <div className="text-center py-4">
+                                        <p className="text-3xl font-bold">{reviewQueue[reviewIdx].term}</p>
+                                        <button
+                                            className="mt-3 text-ink-faint hover:text-ink-soft"
+                                            title="發音"
+                                            onClick={() => playTerm(reviewQueue[reviewIdx].term)}
+                                        >
+                                            <Volume2 size={18} />
+                                        </button>
+                                    </div>
+                                    {showAnswer ? (
+                                        <>
+                                            <div className="text-center pb-4 border-b border-edge">
+                                                {reviewQueue[reviewIdx].reading && (
+                                                    <p className="text-sm text-ink-faint mb-1">（{reviewQueue[reviewIdx].reading}）</p>
+                                                )}
+                                                <p className="text-sm text-ink-soft">{reviewQueue[reviewIdx].meaning || '（尚無釋義）'}</p>
+                                                {reviewQueue[reviewIdx].context && (
+                                                    <p className="text-xs text-ink-faint mt-3 leading-relaxed">「{reviewQueue[reviewIdx].context}」</p>
+                                                )}
+                                                <p className="text-xs text-ink-faint/60 mt-2">
+                                                    {reviewQueue[reviewIdx].folder} L{reviewQueue[reviewIdx].lineNo}
+                                                </p>
+                                            </div>
+                                            <div className="flex gap-3 mt-4">
+                                                <button
+                                                    className="flex-1 py-2 text-sm rounded-lg bg-muted hover:bg-muted-strong text-ink-soft flex items-center justify-center gap-1.5"
+                                                    onClick={() => handleReviewAnswer(false)}
+                                                >
+                                                    <X size={14} />忘記了
+                                                </button>
+                                                <button
+                                                    className="flex-1 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary-hover flex items-center justify-center gap-1.5"
+                                                    onClick={() => handleReviewAnswer(true)}
+                                                >
+                                                    <Check size={14} />記得
+                                                </button>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <button
+                                            className="w-full py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary-hover"
+                                            onClick={() => setShowAnswer(true)}
+                                        >
+                                            顯示答案
+                                        </button>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="text-center py-4">
+                                    {dueList.length > 0 ? (
+                                        <>
+                                            <p className="text-sm text-ink-soft mb-4">這一輪結束,還有 {dueList.length} 個(含剛忘記的)</p>
+                                            <button
+                                                className="px-4 py-2 text-sm rounded-lg bg-primary text-white hover:bg-primary-hover"
+                                                onClick={startReview}
+                                            >
+                                                再複習一輪
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <p className="text-sm text-ink-soft">
+                                            今天都複習完了 <PartyPopper size={16} className="inline align-[-3px] text-amber-500" />
+                                        </p>
+                                    )}
+                                    <button
+                                        className="block mx-auto mt-4 text-xs text-ink-faint hover:text-ink-soft"
+                                        onClick={closeReview}
+                                    >
+                                        關閉
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         )
     }
@@ -551,7 +776,7 @@ function Practice() {
                             <p
                                 className={currentData.ruby?.length ? 'leading-[2.1]' : 'leading-relaxed'}
                                 style={{ fontSize: `${fontSize}px` }}
-                                title="點單字:發音+詞性釋義;詞卡上 ☆ 收藏"
+                                title="點單字:發音+詞性釋義;詞卡上星號收藏"
                             >
                                 <MarkableText
                                     text={currentData.text}
@@ -575,24 +800,27 @@ function Practice() {
                                             : wordCard.meaning}
                                     </span>
                                     <button
-                                        className="text-base text-amber-500 hover:scale-110 transition-transform shrink-0"
+                                        className="text-amber-500 hover:scale-110 transition-transform shrink-0"
                                         title="加入/移除生字本"
                                         onClick={handleCardSave}
                                     >
-                                        {markedSet.has(`${wordCard.lineNo}:${wordCard.term}`) ? '★' : '☆'}
+                                        <Star
+                                            size={16}
+                                            className={markedSet.has(`${wordCard.lineNo}:${wordCard.term}`) ? 'fill-current' : ''}
+                                        />
                                     </button>
                                     <button
                                         className="text-ink-faint hover:text-ink-soft shrink-0"
                                         title="再唸一次"
                                         onClick={() => playTerm(wordCard.term)}
                                     >
-                                        🔊
+                                        <Volume2 size={15} />
                                     </button>
                                     <button
                                         className="text-ink-faint/60 hover:text-ink-soft shrink-0"
                                         onClick={() => setWordCard(null)}
                                     >
-                                        ✕
+                                        <X size={14} />
                                     </button>
                                 </div>
                             )}
@@ -606,18 +834,18 @@ function Practice() {
                                         >
                                             <div className="absolute top-2 right-2 flex items-center gap-1.5">
                                                 <button
-                                                    className="text-sm text-ink-faint hover:text-ink-soft"
+                                                    className="text-ink-faint hover:text-ink-soft"
                                                     title="發音"
                                                     onClick={() => playTerm(v.term)}
                                                 >
-                                                    🔊
+                                                    <Volume2 size={14} />
                                                 </button>
                                                 <button
-                                                    className="text-base text-amber-500 hover:scale-110 transition-transform"
+                                                    className="text-amber-500 hover:scale-110 transition-transform"
                                                     title="收藏到生字本"
                                                     onClick={() => handleStarVocab(v)}
                                                 >
-                                                    {markedSet.has(`${v.line}:${v.term}`) ? '★' : '☆'}
+                                                    <Star size={16} className={markedSet.has(`${v.line}:${v.term}`) ? 'fill-current' : ''} />
                                                 </button>
                                             </div>
                                             <p className="text-sm pr-6">
@@ -711,6 +939,33 @@ function Practice() {
                                     </button>
                                 ))}
                             </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {topLines.length > 0 && (
+                <div className="mt-4">
+                    <button
+                        className="w-full text-left text-sm text-ink-soft px-3 py-2 bg-card border border-edge rounded-lg hover:bg-muted"
+                        onClick={() => setTopOpen(!topOpen)}
+                    >
+                        {topOpen ? '▾' : '▸'} 難句排行
+                        {!topOpen && <span className="text-ink-faint ml-2">重播最多的 {topLines.length} 句</span>}
+                    </button>
+                    {topOpen && (
+                        <div className="mt-2 p-2 bg-card border border-edge rounded-lg space-y-1">
+                            {topLines.map((t, i) => (
+                                <button
+                                    key={i}
+                                    className="w-full text-left text-sm px-2 py-1.5 rounded hover:bg-muted flex gap-3 items-baseline"
+                                    onClick={() => playAt(t.lineNo - 1)}
+                                >
+                                    <span className="text-ink-faint shrink-0 w-10 text-right">L{t.lineNo}</span>
+                                    <span className="flex-1 truncate text-ink-soft">{lines[t.lineNo - 1]}</span>
+                                    <span className="text-ink-faint text-xs shrink-0">×{t.playCount}</span>
+                                </button>
+                            ))}
                         </div>
                     )}
                 </div>

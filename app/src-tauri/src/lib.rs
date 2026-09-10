@@ -163,6 +163,51 @@ fn write_config_file(config: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
+/// ── 視窗狀態記憶(window-state.json,獨立於 config.json 避免與前端 save_config 互踩)──
+/// Moved/Resized 事件只更新記憶體快取,退出時才落檔;啟動時座標須落在任一已接螢幕才還原,
+/// 抓不到(螢幕已拔)就維持 tauri.conf 預設 = 主螢幕置中
+fn window_live_state() -> &'static std::sync::Mutex<Option<(i32, i32, u32, u32)>> {
+    static STATE: std::sync::OnceLock<std::sync::Mutex<Option<(i32, i32, u32, u32)>>> =
+        std::sync::OnceLock::new();
+    STATE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+fn save_window_state() {
+    if let Some((x, y, w, h)) = *window_live_state().lock().unwrap() {
+        let _ = fs::write(
+            data_dir().join("window-state.json"),
+            serde_json::json!({ "x": x, "y": y, "width": w, "height": h }).to_string(),
+        );
+    }
+}
+
+fn restore_window_state(window: &tauri::WebviewWindow) {
+    let Ok(content) = fs::read_to_string(data_dir().join("window-state.json")) else { return };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) else { return };
+    let (Some(x), Some(y), Some(w), Some(h)) =
+        (v["x"].as_i64(), v["y"].as_i64(), v["width"].as_u64(), v["height"].as_u64())
+    else {
+        return;
+    };
+    // 至少要有 100×25(實體像素)的標題列區域露在某顆螢幕內,不然視為「抓不到對應螢幕」
+    let on_screen = window
+        .available_monitors()
+        .map(|monitors| {
+            monitors.iter().any(|m| {
+                let mp = m.position();
+                let ms = m.size();
+                let ix = (x + w as i64).min(mp.x as i64 + ms.width as i64) - x.max(mp.x as i64);
+                let iy = (y + 25).min(mp.y as i64 + ms.height as i64) - y.max(mp.y as i64);
+                ix >= 100 && iy >= 25
+            })
+        })
+        .unwrap_or(false);
+    if on_screen {
+        let _ = window.set_size(tauri::PhysicalSize::new(w as u32, h as u32));
+        let _ = window.set_position(tauri::PhysicalPosition::new(x as i32, y as i32));
+    }
+}
+
 /// 外部 CLI 尋找:PATH 之外補上 Homebrew(arm64/Intel)與 ~/.local/bin(claude CLI 等
 /// 使用者層安裝)——從 Finder 啟動的 .app 拿不到 shell 的 PATH
 pub(crate) fn find_tool(name: &str) -> Option<PathBuf> {
@@ -670,9 +715,38 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            // 視窗定位要在顯示前完成(conf 設 visible:false),避免先閃預設位置再跳走
+            {
+                use tauri::Manager;
+                if let Some(win) = app.get_webview_window("main") {
+                    restore_window_state(&win);
+                    if let (Ok(p), Ok(s)) = (win.outer_position(), win.outer_size()) {
+                        *window_live_state().lock().unwrap() = Some((p.x, p.y, s.width, s.height));
+                    }
+                    let _ = win.show();
+                }
+            }
             // 索引重建(derived 表)丟背景執行緒,不擋啟動
             std::thread::spawn(db::rebuild_index);
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            match event {
+                tauri::WindowEvent::Moved(p) => {
+                    if let Some(s) = window_live_state().lock().unwrap().as_mut() {
+                        (s.0, s.1) = (p.x, p.y);
+                    }
+                }
+                tauri::WindowEvent::Resized(sz) => {
+                    if let Some(s) = window_live_state().lock().unwrap().as_mut() {
+                        (s.2, s.3) = (sz.width, sz.height);
+                    }
+                }
+                _ => {}
+            }
         })
         .invoke_handler(tauri::generate_handler![
                 native_download::fetch_title, native_download::download_audio,
@@ -684,14 +758,17 @@ pub fn run() {
                 native_models::voicevox_status, native_models::download_voicevox,
                 native_analysis::analyze_transcript, native_analysis::get_analysis,
                 furigana::get_ruby, furigana::term_pos, db::toggle_vocab, db::list_vocab, db::list_messages,
+                db::top_lines, db::search_lines, db::start_session, db::end_session,
+                db::due_vocab, db::review_vocab,
                 tutor::ask_tutor, tutor::lookup_term, native_tts::speak_term, log_ui
             ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
-            // 退出時收割 VOICEVOX 子行程,避免孤兒引擎佔著 port 與記憶體
+            // 退出時收割 VOICEVOX 子行程,避免孤兒引擎佔著 port 與記憶體;順手落檔視窗狀態
             if let tauri::RunEvent::Exit = event {
                 use tauri::Manager;
+                save_window_state();
                 native_voicevox::shutdown_blocking(&app.state::<native_voicevox::JaTtsState>());
             }
         });

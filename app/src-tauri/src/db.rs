@@ -129,6 +129,22 @@ fn migrate(c: &Connection) {
 			Err(e) => log_error_line("db", &format!("migration v2 失敗: {}", e)),
 		}
 	}
+	if v < 3 {
+		// v3:SRS 間隔複習欄位(dueDate NULL = 新卡,立即到期;interval 單位天)
+		let result = c.execute_batch(
+			r#"
+			ALTER TABLE VocabItems ADD COLUMN dueDate TEXT;
+			ALTER TABLE VocabItems ADD COLUMN interval REAL NOT NULL DEFAULT 0;
+			ALTER TABLE VocabItems ADD COLUMN ease REAL NOT NULL DEFAULT 2.5;
+			ALTER TABLE VocabItems ADD COLUMN reviewCount INTEGER NOT NULL DEFAULT 0;
+			PRAGMA user_version = 3;
+			"#,
+		);
+		match result {
+			Ok(()) => log_info_line("db", "migration v3 完成(VocabItems SRS 欄位)"),
+			Err(e) => log_error_line("db", &format!("migration v3 失敗: {}", e)),
+		}
+	}
 }
 
 /// 即查快取讀取(Lookups 表)
@@ -277,6 +293,109 @@ pub fn bump_line_stat(language: &str, folder: &str, line_no: i32) {
 	);
 }
 
+/// 難句排行:本集重播次數 Top N(playCount ≥ 2 才算「重播」,單純聽過一輪不進榜)
+#[tauri::command]
+pub fn top_lines(folder: String, n: i64) -> Result<Vec<serde_json::Value>, String> {
+	crate::validate_folder(&folder)?;
+	let lang = crate::course_language();
+	let c = conn();
+	let mut stmt = c
+		.prepare(
+			"SELECT lineNo, playCount FROM LineStats
+			 WHERE language = ?1 AND folder = ?2 AND playCount >= 2
+			 ORDER BY playCount DESC, lineNo LIMIT ?3",
+		)
+		.map_err(|e| e.to_string())?;
+	let rows = stmt
+		.query_map(rusqlite::params![lang, folder, n], |r| {
+			Ok(serde_json::json!({
+				"lineNo": r.get::<_, i64>(0)?,
+				"playCount": r.get::<_, i64>(1)?,
+			}))
+		})
+		.map_err(|e| e.to_string())?;
+	Ok(rows.flatten().collect())
+}
+
+/// 跨集全文檢索(目前課綱):3 字元以上走 FTS5 trigram,更短退回 LIKE(trigram 的最小單位限制)
+#[tauri::command]
+pub fn search_lines(query: String) -> Result<Vec<serde_json::Value>, String> {
+	let q = query.trim();
+	if q.is_empty() {
+		return Ok(vec![]);
+	}
+	let lang = crate::course_language();
+	let c = conn();
+	let row_json = |r: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
+		Ok(serde_json::json!({
+			"folder": r.get::<_, String>(0)?,
+			"lineNo": r.get::<_, i64>(1)?,
+			"content": r.get::<_, String>(2)?,
+		}))
+	};
+	let rows: Vec<serde_json::Value> = if q.chars().count() >= 3 {
+		let match_q = format!("\"{}\"", q.replace('"', "\"\""));
+		let mut stmt = c
+			.prepare(
+				"SELECT e.folder, l.lineNo, l.content
+				 FROM LinesFts JOIN Lines l ON l.id = LinesFts.rowid JOIN Episodes e ON e.id = l.episodeId
+				 WHERE e.language = ?1 AND LinesFts MATCH ?2
+				 ORDER BY e.folder, l.lineNo LIMIT 50",
+			)
+			.map_err(|e| e.to_string())?;
+		let it = stmt
+			.query_map(rusqlite::params![lang, match_q], |r| row_json(r))
+			.map_err(|e| e.to_string())?;
+		it.flatten().collect()
+	} else {
+		let like = format!(
+			"%{}%",
+			q.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+		);
+		let mut stmt = c
+			.prepare(
+				"SELECT e.folder, l.lineNo, l.content
+				 FROM Lines l JOIN Episodes e ON e.id = l.episodeId
+				 WHERE e.language = ?1 AND l.content LIKE ?2 ESCAPE '\\'
+				 ORDER BY e.folder, l.lineNo LIMIT 50",
+			)
+			.map_err(|e| e.to_string())?;
+		let it = stmt
+			.query_map(rusqlite::params![lang, like], |r| row_json(r))
+			.map_err(|e| e.to_string())?;
+		it.flatten().collect()
+	};
+	Ok(rows)
+}
+
+// ── 練習 session(primary)──
+
+/// 進練習頁開一筆 session,回傳 id 給前端持有
+#[tauri::command]
+pub fn start_session(folder: String) -> Result<i64, String> {
+	crate::validate_folder(&folder)?;
+	let lang = crate::course_language();
+	let c = conn();
+	c.execute(
+		"INSERT INTO PracticeSessions (language, folder, startDate) VALUES (?1, ?2, ?3)",
+		rusqlite::params![lang, folder, now()],
+	)
+	.map_err(|e| e.to_string())?;
+	Ok(c.last_insert_rowid())
+}
+
+/// 離開練習頁補上結束時間與播放句數;只收未結束的列(重複呼叫無害)
+#[tauri::command]
+pub fn end_session(id: i64, lines_played: i64) -> Result<(), String> {
+	let c = conn();
+	c.execute(
+		"UPDATE PracticeSessions SET endDate = ?2, linesPlayed = ?3 WHERE id = ?1 AND endDate IS NULL",
+		rusqlite::params![id, now(), lines_played],
+	)
+	.map_err(|e| e.to_string())?;
+	Ok(())
+}
+
 // ── 生字本(primary)──
 
 /// 標記/取消生字(同集同行同詞 = toggle);回傳 toggle 後是否為已標記
@@ -377,6 +496,65 @@ pub fn set_vocab_meaning(language: &str, folder: &str, line_no: i32, term: &str,
 		"UPDATE VocabItems SET meaning = ?5 WHERE language = ?1 AND folder = ?2 AND lineNo = ?3 AND term = ?4 AND meaning = ''",
 		rusqlite::params![language, folder, line_no, term, meaning],
 	);
+}
+
+// ── SRS 間隔複習(primary)──
+
+/// 今日到期的生字(目前課綱,含新卡 dueDate NULL);夾帶出處句方便卡背顯示語境
+#[tauri::command]
+pub fn due_vocab() -> Result<Vec<serde_json::Value>, String> {
+	let lang = crate::course_language();
+	let c = conn();
+	let mut stmt = c
+		.prepare(
+			"SELECT v.id, v.folder, v.lineNo, v.term, v.reading, v.meaning, v.reviewCount, COALESCE(l.content, '')
+			 FROM VocabItems v
+			 LEFT JOIN Episodes e ON e.language = v.language AND e.folder = v.folder
+			 LEFT JOIN Lines l ON l.episodeId = e.id AND l.lineNo = v.lineNo
+			 WHERE v.language = ?1 AND (v.dueDate IS NULL OR v.dueDate <= ?2)
+			 ORDER BY v.id LIMIT 100",
+		)
+		.map_err(|e| e.to_string())?;
+	let rows = stmt
+		.query_map(rusqlite::params![lang, now()], |r| {
+			Ok(serde_json::json!({
+				"id": r.get::<_, i64>(0)?,
+				"folder": r.get::<_, String>(1)?,
+				"lineNo": r.get::<_, Option<i64>>(2)?,
+				"term": r.get::<_, String>(3)?,
+				"reading": r.get::<_, String>(4)?,
+				"meaning": r.get::<_, String>(5)?,
+				"reviewCount": r.get::<_, i64>(6)?,
+				"context": r.get::<_, String>(7)?,
+			}))
+		})
+		.map_err(|e| e.to_string())?;
+	Ok(rows.flatten().collect())
+}
+
+/// 簡化版 SM-2:記得 → 間隔 ×ease(首次 1 天);忘記 → 間隔歸零(當天重出)、ease 降 0.2(下限 1.3)
+#[tauri::command]
+pub fn review_vocab(id: i64, remembered: bool) -> Result<serde_json::Value, String> {
+	let c = conn();
+	let (interval, ease): (f64, f64) = c
+		.query_row("SELECT interval, ease FROM VocabItems WHERE id = ?1", [id], |r| {
+			Ok((r.get(0)?, r.get(1)?))
+		})
+		.map_err(|e| e.to_string())?;
+	let (interval, ease) = if remembered {
+		(if interval < 1.0 { 1.0 } else { interval * ease }, ease)
+	} else {
+		(0.0, (ease - 0.2_f64).max(1.3))
+	};
+	let due = (chrono::Local::now() + chrono::Duration::seconds((interval * 86400.0) as i64))
+		.format("%Y-%m-%dT%H:%M:%S")
+		.to_string();
+	c.execute(
+		"UPDATE VocabItems SET interval = ?2, ease = ?3, dueDate = ?4, reviewCount = reviewCount + 1 WHERE id = ?1",
+		rusqlite::params![id, interval, ease, due],
+	)
+	.map_err(|e| e.to_string())?;
+	Ok(serde_json::json!({ "interval": interval, "dueDate": due }))
 }
 
 // ── tutor 對話(primary)──
