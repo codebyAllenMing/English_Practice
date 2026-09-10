@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { check } from '@tauri-apps/plugin-updater'
 import { relaunch } from '@tauri-apps/plugin-process'
 
-// 啟動時向 GitHub Releases 檢查新版(latest.json);非阻塞角落卡片,下載安裝完成後提示重啟
+// 啟動時向 GitHub Releases 檢查新版(latest.json);提示與完成為非阻塞角落卡片,
+// 下載安裝期間升級成全螢幕 modal 鎖住整個 app(檔案正在原地替換,不能讓操作混進來)
 function UpdateBanner() {
     const [phase, setPhase] = useState(null) // null = 無事 | 'available' | 'downloading' | 'ready' | 'error'
     const [version, setVersion] = useState('')
@@ -20,6 +21,17 @@ function UpdateBanner() {
             }
         }).catch(() => {}) // 離線或 API 失敗時安靜略過,下次啟動再試
     }, [])
+
+    // 下載中把鍵盤也鎖掉:遮罩擋得住點擊,但練習頁快捷鍵掛在 window 上,要用 capture 搶先吞掉
+    useEffect(() => {
+        if (phase !== 'downloading') return
+        const block = (e) => {
+            e.stopPropagation()
+            e.preventDefault()
+        }
+        window.addEventListener('keydown', block, true)
+        return () => window.removeEventListener('keydown', block, true)
+    }, [phase])
 
     const handleUpdate = async () => {
         setPhase('downloading')
@@ -43,6 +55,20 @@ function UpdateBanner() {
 
     if (!phase) return null
 
+    if (phase === 'downloading') {
+        return (
+            <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
+                <div className="w-[320px] bg-surface border border-edge rounded-xl shadow-xl p-5">
+                    <p className="text-sm text-ink-soft mb-2">下載更新中... {pct}%</p>
+                    <div className="w-full bg-muted rounded-full h-2">
+                        <div className="bg-primary h-2 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+                    </div>
+                    <p className="text-xs text-ink-faint mt-3">更新安裝中,請勿關閉視窗。</p>
+                </div>
+            </div>
+        )
+    }
+
     return (
         <div className="fixed bottom-4 right-4 z-50 w-[320px] bg-surface border border-edge rounded-xl shadow-lg p-4">
             {phase === 'available' && (
@@ -62,15 +88,6 @@ function UpdateBanner() {
                         >
                             立即更新
                         </button>
-                    </div>
-                </>
-            )}
-
-            {phase === 'downloading' && (
-                <>
-                    <p className="text-sm text-ink-soft mb-2">下載更新中... {pct}%</p>
-                    <div className="w-full bg-muted rounded-full h-2">
-                        <div className="bg-primary h-2 rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
                     </div>
                 </>
             )}
