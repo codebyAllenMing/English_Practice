@@ -2,6 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 use tokio::process::Command;
 
+pub mod furigana;
+pub mod native_analysis;
 pub mod native_download;
 pub mod native_models;
 pub mod native_transcribe;
@@ -408,13 +410,13 @@ async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, Str
     );
 
     let result_text = if mode == "cli" {
-        correct_via_cli(&prompt).await?
+        llm_via_cli(&prompt).await?
     } else {
         let api_key = config["anthropic_api_key"]
             .as_str()
             .filter(|k| !k.is_empty())
             .ok_or("請先在設定填入 Anthropic API Key(或切換為本機 Claude CLI 模式)")?;
-        correct_via_api(api_key, &prompt).await?
+        llm_via_api(api_key, &prompt, correction_schema()).await?
     };
 
     let parsed: serde_json::Value = serde_json::from_str(extract_json(&result_text))
@@ -462,48 +464,52 @@ async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, Str
     }))
 }
 
-/// Anthropic API 路徑:structured outputs 強制 JSON 回傳
-async fn correct_via_api(api_key: &str, prompt: &str) -> Result<String, String> {
-    let body = serde_json::json!({
-        "model": "claude-haiku-4-5",
-        "max_tokens": 8192,
-        "output_config": {
-            "format": {
-                "type": "json_schema",
-                "schema": {
+/// 校正結果的 structured outputs schema
+fn correction_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "speakers": {
+                "type": "array",
+                "items": {
                     "type": "object",
                     "properties": {
-                        "speakers": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "from": { "type": "string" },
-                                    "to": { "type": "string" },
-                                    "gender": { "type": "string", "enum": ["m", "f", "u"] }
-                                },
-                                "required": ["from", "to", "gender"],
-                                "additionalProperties": false
-                            }
-                        },
-                        "fixes": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "line": { "type": "integer" },
-                                    "text": { "type": "string" }
-                                },
-                                "required": ["line", "text"],
-                                "additionalProperties": false
-                            }
-                        }
+                        "from": { "type": "string" },
+                        "to": { "type": "string" },
+                        "gender": { "type": "string", "enum": ["m", "f", "u"] }
                     },
-                    "required": ["speakers", "fixes"],
+                    "required": ["from", "to", "gender"],
+                    "additionalProperties": false
+                }
+            },
+            "fixes": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "line": { "type": "integer" },
+                        "text": { "type": "string" }
+                    },
+                    "required": ["line", "text"],
                     "additionalProperties": false
                 }
             }
         },
+        "required": ["speakers", "fixes"],
+        "additionalProperties": false
+    })
+}
+
+/// Anthropic API 路徑:structured outputs 強制 JSON 回傳;校正與分析講義共用
+pub(crate) async fn llm_via_api(
+    api_key: &str,
+    prompt: &str,
+    schema: serde_json::Value,
+) -> Result<String, String> {
+    let body = serde_json::json!({
+        "model": "claude-haiku-4-5",
+        "max_tokens": 8192,
+        "output_config": { "format": { "type": "json_schema", "schema": schema } },
         "messages": [{ "role": "user", "content": prompt }]
     });
 
@@ -527,7 +533,7 @@ async fn correct_via_api(api_key: &str, prompt: &str) -> Result<String, String> 
         return Err(format!("API 錯誤 ({}): {}", status.as_u16(), msg));
     }
     if resp_json["stop_reason"] == "max_tokens" {
-        return Err("校正結果超過輸出上限,結果不完整,未套用".to_string());
+        return Err("模型輸出超過上限,結果不完整,未套用".to_string());
     }
 
     resp_json["content"]
@@ -539,7 +545,7 @@ async fn correct_via_api(api_key: &str, prompt: &str) -> Result<String, String> 
 }
 
 /// 本機 Claude CLI 路徑:單次 print 呼叫(無 agentic loop、不給工具),吃使用者登入的訂閱額度
-async fn correct_via_cli(prompt: &str) -> Result<String, String> {
+pub(crate) async fn llm_via_cli(prompt: &str) -> Result<String, String> {
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(300),
         Command::new(find_tool("claude").unwrap_or_else(|| "claude".into()))
@@ -565,7 +571,7 @@ async fn correct_via_cli(prompt: &str) -> Result<String, String> {
 }
 
 /// 模型輸出可能帶 markdown fence 或前後綴文字,取第一個 '{' 到最後一個 '}'
-fn extract_json(text: &str) -> &str {
+pub(crate) fn extract_json(text: &str) -> &str {
     match (text.find('{'), text.rfind('}')) {
         (Some(s), Some(e)) if e > s => &text[s..=e],
         _ => text,
@@ -665,7 +671,8 @@ pub fn run() {
                 native_tts::get_voices, native_tts::save_voices,
                 native_models::models_status, native_models::download_models, native_download::tools_status,
                 native_models::voicevox_status, native_models::download_voicevox,
-                log_ui
+                native_analysis::analyze_transcript, native_analysis::get_analysis,
+                furigana::get_ruby, log_ui
             ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

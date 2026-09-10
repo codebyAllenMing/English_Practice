@@ -14,6 +14,21 @@ const SPEAKER_COLORS = [
     'bg-cyan-100 dark:bg-cyan-900/50 text-cyan-700 dark:text-cyan-300',
 ]
 
+// 詞級振り仮名渲染:segs = [[詞面, 讀音|null], ...];無標音資料時原樣顯示 fallback
+function RubyText({ segs, fallback }) {
+    if (!segs || segs.length === 0) return fallback
+    return segs.map(([surface, reading], i) =>
+        reading ? (
+            <ruby key={i}>
+                {surface}
+                <rt className="text-[0.45em] text-ink-faint font-normal">{reading}</rt>
+            </ruby>
+        ) : (
+            <span key={i}>{surface}</span>
+        )
+    )
+}
+
 function Practice() {
     const [podcasts, setPodcasts] = useState([])
     const [selected, setSelected] = useState('')
@@ -28,6 +43,10 @@ function Practice() {
     const [voiceFolder, setVoiceFolder] = useState('')
     const [jaDownloading, setJaDownloading] = useState(false) // VOICEVOX 引擎下載中
     const [jaProgress, setJaProgress] = useState(null) // {received, total}
+    const [rubyLines, setRubyLines] = useState([]) // 閱讀模式的逐行振り仮名(非日文課綱為空)
+    const [analysis, setAnalysis] = useState(null) // 講義:null=未載入 | {exists:false} | {exists:true, result}
+    const [analyzing, setAnalyzing] = useState(false)
+    const [outlineOpen, setOutlineOpen] = useState(false)
     const audioRef = useRef(null)
     const listRef = useRef(null)
     const lineRefs = useRef([])
@@ -50,6 +69,15 @@ function Practice() {
         return map
     }, [lines])
 
+    // 詞彙依行號索引:{行號: [詞彙...]};播放到該句時顯示「本句重點」,清單行號旁標圓點
+    const vocabByLine = useMemo(() => {
+        const map = {}
+        for (const v of analysis?.result?.vocab || []) {
+            ;(map[v.line] = map[v.line] || []).push(v)
+        }
+        return map
+    }, [analysis])
+
     const handlePractice = async (name) => {
         setSelected(name)
         setView('practice')
@@ -57,6 +85,9 @@ function Practice() {
         setCurrentData(null)
         setReady(false)
         setError('')
+        setAnalysis(null)
+        setOutlineOpen(false)
+        invoke('get_analysis', { folder: name }).then(setAnalysis).catch(() => {})
         loading(true, '載入語音模型...')
         try {
             const l = await invoke('get_lines', { folder: name })
@@ -67,6 +98,20 @@ function Practice() {
             setError(String(err))
         } finally {
             loading(false)
+        }
+    }
+
+    // 手動生成講義(舊集補生成/失敗重試;校正流程會自動跑,多數情況看不到這顆按鈕)
+    const handleAnalyze = async () => {
+        setAnalyzing(true)
+        setError('')
+        try {
+            await invoke('analyze_transcript', { folder: selected })
+            setAnalysis(await invoke('get_analysis', { folder: selected }))
+        } catch (err) {
+            setError(`講義生成失敗：${err}`)
+        } finally {
+            setAnalyzing(false)
         }
     }
 
@@ -97,6 +142,8 @@ function Practice() {
         try {
             const l = await invoke('get_lines', { folder: name })
             setLines(l)
+            // 日文課綱回逐行標音;英文回空陣列,原樣渲染
+            setRubyLines(await invoke('get_ruby', { folder: name }).catch(() => []))
         } catch (err) {
             setError(String(err))
         }
@@ -266,7 +313,12 @@ function Practice() {
                                 >
                                     {speaker || '—'}
                                 </span>
-                                <p className="flex-1 leading-relaxed" style={{ fontSize: `${fontSize}px` }}>{text}</p>
+                                <p
+                                    className={`flex-1 ${rubyLines[i]?.length ? 'leading-[2.1]' : 'leading-relaxed'}`}
+                                    style={{ fontSize: `${fontSize}px` }}
+                                >
+                                    <RubyText segs={rubyLines[i]} fallback={text} />
+                                </p>
                             </div>
                         )
                     })}
@@ -327,7 +379,32 @@ function Practice() {
                             <p className="text-sm text-ink-faint mb-3">
                                 [{currentData.speaker}] ({currentData.index + 1}/{currentData.total}){playing && <span className="ml-2 text-primary">▶ 播放中</span>}
                             </p>
-                            <p className="leading-relaxed" style={{ fontSize: `${fontSize}px` }}>{currentData.text}</p>
+                            <p
+                                className={currentData.ruby?.length ? 'leading-[2.1]' : 'leading-relaxed'}
+                                style={{ fontSize: `${fontSize}px` }}
+                            >
+                                <RubyText segs={currentData.ruby} fallback={currentData.text} />
+                            </p>
+                            {(vocabByLine[currentData.index + 1] || []).length > 0 && (
+                                <div className="mt-4 space-y-2">
+                                    <p className="text-xs text-ink-faint">本句重點</p>
+                                    {vocabByLine[currentData.index + 1].map((v, i) => (
+                                        <div
+                                            key={i}
+                                            className="p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40"
+                                        >
+                                            <p className="text-sm">
+                                                <span className="font-bold">{v.term}</span>
+                                                {v.reading && <span className="text-ink-faint ml-1">（{v.reading}）</span>}
+                                                <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-amber-200/60 dark:bg-amber-800/60 text-amber-900 dark:text-amber-200">
+                                                    {v.type}
+                                                </span>
+                                            </p>
+                                            <p className="text-sm text-ink-soft mt-1">{v.meaning}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </>
                     ) : (
                         <p className="text-ink-faint text-center">按下方按鈕或鍵盤開始播放</p>
@@ -366,6 +443,52 @@ function Practice() {
                 鍵盤：↑ 上一句  ← 重複  ↓/空白 下一句
             </p>
 
+            {analysis && !analysis.exists && (
+                <div className="mt-4 flex items-center justify-center gap-3 text-sm text-ink-faint">
+                    本集尚無講義
+                    <button
+                        className="px-3 py-1.5 bg-muted rounded-lg hover:bg-muted-strong text-ink-soft disabled:opacity-50"
+                        onClick={handleAnalyze}
+                        disabled={analyzing}
+                    >
+                        {analyzing ? '生成講義中…（約 1～2 分鐘）' : '生成講義'}
+                    </button>
+                </div>
+            )}
+
+            {analysis?.exists && analysis.result?.sections?.length > 0 && (
+                <div className="mt-4">
+                    <button
+                        className="w-full text-left text-sm text-ink-soft px-3 py-2 bg-card border border-edge rounded-lg hover:bg-muted"
+                        onClick={() => setOutlineOpen(!outlineOpen)}
+                    >
+                        {outlineOpen ? '▾' : '▸'} 大綱
+                        {!outlineOpen && (
+                            <span className="text-ink-faint ml-2">
+                                {analysis.result.sections.map((s) => s.title).join(' · ')}
+                            </span>
+                        )}
+                    </button>
+                    {outlineOpen && (
+                        <div className="mt-2 p-3 bg-card border border-edge rounded-lg">
+                            <p className="text-sm text-ink-soft mb-3">{analysis.result.summary}</p>
+                            <div className="space-y-1">
+                                {analysis.result.sections.map((s, i) => (
+                                    <button
+                                        key={i}
+                                        className="w-full text-left text-sm px-2 py-1.5 rounded hover:bg-muted flex justify-between"
+                                        onClick={() => playAt(s.startLine - 1)}
+                                    >
+                                        <span>{s.title}</span>
+                                        <span className="text-ink-faint">L{s.startLine}–{s.endLine} →</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
             <div className="mt-6 max-h-[300px] overflow-y-auto" ref={listRef}>
                 <ul className="space-y-1">
                     {lines.map((line, i) => (
@@ -376,6 +499,9 @@ function Practice() {
                             onClick={() => playAt(i)}
                         >
                             <span className="text-ink-faint/60 select-none w-8 text-right shrink-0">{i + 1}</span>
+                            <span className="w-2 shrink-0 self-center">
+                                {vocabByLine[i + 1] && <span className="block w-1.5 h-1.5 rounded-full bg-amber-400" title="本句有講點" />}
+                            </span>
                             <span>{line}</span>
                         </li>
                     ))}

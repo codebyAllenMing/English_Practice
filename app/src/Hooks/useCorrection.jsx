@@ -19,6 +19,14 @@ export function CorrectionProvider({ children }) {
 			const res = await invoke('correct_transcript', { folder: name })
 			setResults((r) => ({ ...r, [name]: res }))
 			setLastMessage(`校正完成:${name}(說話者 ${res.speakers} 位、修正 ${res.fixes} 行)`)
+			// 校正完自動接跑分析講義(一次性,產物快取 analysis.json);失敗不擋流程,練習頁可手動重生成
+			setLastMessage(`校正完成:${name},生成講義中…`)
+			try {
+				const a = await invoke('analyze_transcript', { folder: name })
+				setLastMessage(`講義就緒:${name}(大綱 ${a.sections} 段、詞彙 ${a.vocab} 則)`)
+			} catch (err) {
+				setLastMessage(`${name} 校正完成,但講義生成失敗:${err}`)
+			}
 		} catch (err) {
 			setResults((r) => ({ ...r, [name]: { error: String(err) } }))
 			setLastMessage(`錯誤:${err}`)

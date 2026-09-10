@@ -20,9 +20,26 @@ fn main() {
 		Some("title") => run_title(&args),
 		Some("download") => run_download(&args),
 		Some("models") => run_models(&args),
+		Some("analyze") => run_analyze(&args),
 		Some(folder) => run_transcribe(folder),
 		None => {
-			eprintln!("用法: native_test <folder> | tts <folder> <line-index> <out.wav> | sid <sid> <out.wav> | title <url> | download <url> <folder> | models [data-dir]");
+			eprintln!("用法: native_test <folder> | tts <folder> <line-index> <out.wav> | sid <sid> <out.wav> | title <url> | download <url> <folder> | models [data-dir] | analyze <folder>");
+			std::process::exit(1);
+		}
+	}
+}
+
+// 分析講義測試:跑一次 AI 分析(依 config 的 correction_mode)並印摘要
+fn run_analyze(args: &[String]) {
+	let Some(folder) = args.get(2) else {
+		eprintln!("用法: native_test analyze <folder>");
+		std::process::exit(1);
+	};
+	let rt = tokio::runtime::Runtime::new().expect("建立 runtime 失敗");
+	match rt.block_on(app_lib::native_analysis::analyze_transcript(folder.clone())) {
+		Ok(res) => println!("DONE: {}", res),
+		Err(e) => {
+			eprintln!("ERROR: {}", e);
 			std::process::exit(1);
 		}
 	}
