@@ -663,28 +663,35 @@ fn delete_podcast(folder: String) -> Result<(), String> {
     Ok(())
 }
 
+/// 可練習清單:名稱 + 新增時間(資料夾 birthtime = 下載當下),新→舊排序
 #[tauri::command]
-fn list_transcribed() -> Result<Vec<String>, String> {
+fn list_transcribed() -> Result<Vec<serde_json::Value>, String> {
     let podcasts_dir = podcasts_dir();
     if !podcasts_dir.exists() {
         return Ok(vec![]);
     }
-    let mut list: Vec<String> = fs::read_dir(&podcasts_dir)
+    let mut list: Vec<(String, String)> = fs::read_dir(&podcasts_dir)
         .map_err(|e| e.to_string())?
         .filter_map(|entry| {
             let entry = entry.ok()?;
-            if !entry.file_type().ok()?.is_dir() {
+            if !entry.file_type().ok()?.is_dir() || !entry.path().join("word.txt").exists() {
                 return None;
             }
-            if entry.path().join("word.txt").exists() {
-                Some(entry.file_name().to_string_lossy().to_string())
-            } else {
-                None
-            }
+            let name = entry.file_name().to_string_lossy().to_string();
+            let created = entry
+                .metadata()
+                .ok()
+                .and_then(|m| m.created().ok())
+                .map(|t| chrono::DateTime::<chrono::Local>::from(t).format("%Y-%m-%dT%H:%M:%S").to_string())
+                .unwrap_or_default();
+            Some((name, created))
         })
         .collect();
-    list.sort();
-    Ok(list)
+    list.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    Ok(list
+        .into_iter()
+        .map(|(name, create_date)| serde_json::json!({ "name": name, "createDate": create_date }))
+        .collect())
 }
 
 #[tauri::command]

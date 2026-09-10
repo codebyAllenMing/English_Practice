@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import { Play, FileText, Volume2, Search, BookOpen, Check, X, Star, PartyPopper } from 'lucide-react'
+import { Play, FileText, Volume2, Search, BookOpen, Check, X, Star, PartyPopper, LayoutGrid, List } from 'lucide-react'
 import { useLoading } from '../Hooks/useLoading'
 import VoiceDialog from '../Components/VoiceDialog'
 import TutorChat from '../Components/TutorChat'
@@ -106,6 +106,14 @@ function Practice() {
     const [wordCard, setWordCard] = useState(null) // 點詞後的詞卡 {term, reading, meaning, loading}
     const [allVocab, setAllVocab] = useState([]) // 清單頁生字本(目前課綱全部)
     const [vocabOpen, setVocabOpen] = useState(false)
+    // 清單檢視模式:grid(卡片)/ table(表格);記在 localStorage
+    const [viewMode, setViewMode] = useState(() => {
+        try {
+            return localStorage.getItem('practiceView') || 'grid'
+        } catch {
+            return 'grid'
+        }
+    })
     const [topLines, setTopLines] = useState([]) // 本集重播排行(playCount ≥ 2)
     const [topOpen, setTopOpen] = useState(false)
     const [searchQuery, setSearchQuery] = useState('') // 清單頁跨集全文檢索
@@ -276,6 +284,15 @@ function Practice() {
         const next = reviewIdx + 1
         setReviewIdx(next)
         if (next >= reviewQueue.length) invoke('due_vocab').then(setDueList).catch(() => {})
+    }
+
+    const changeViewMode = (v) => {
+        setViewMode(v)
+        try {
+            localStorage.setItem('practiceView', v)
+        } catch {
+            /* 私密視窗等情境存不了就算了 */
+        }
     }
 
     // 結束 PracticeSession(handleBack 與元件卸載共用;重複呼叫無害)
@@ -459,15 +476,33 @@ function Practice() {
                 <h1 className="text-2xl font-bold mb-6">練習</h1>
                 {error && <p className="text-sm text-red-500 dark:text-red-400 mb-4">{error}</p>}
                 <div className="mb-6">
-                    <div className="relative">
-                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" />
-                        <input
-                            type="text"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="搜尋所有逐字稿…(點結果直接跳到該句)"
-                            className="w-full pl-9 pr-3 py-2 text-sm bg-card border border-edge rounded-lg focus:outline-none focus:border-edge-strong placeholder:text-ink-faint/60"
-                        />
+                    <div className="flex items-center gap-3">
+                        <div className="relative flex-1">
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-faint pointer-events-none" />
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="搜尋所有逐字稿…(點結果直接跳到該句)"
+                                className="w-full pl-9 pr-3 py-2 text-sm bg-card border border-edge rounded-lg focus:outline-none focus:border-edge-strong placeholder:text-ink-faint/60"
+                            />
+                        </div>
+                        <div className="inline-flex rounded-lg border border-edge-strong overflow-hidden shrink-0">
+                            <button
+                                className={`px-2.5 py-2 ${viewMode === 'grid' ? 'bg-primary text-white' : 'text-ink-faint hover:bg-card'}`}
+                                title="卡片檢視"
+                                onClick={() => changeViewMode('grid')}
+                            >
+                                <LayoutGrid size={15} />
+                            </button>
+                            <button
+                                className={`px-2.5 py-2 ${viewMode === 'table' ? 'bg-primary text-white' : 'text-ink-faint hover:bg-card'}`}
+                                title="表格檢視"
+                                onClick={() => changeViewMode('table')}
+                            >
+                                <List size={15} />
+                            </button>
+                        </div>
                     </div>
                     {searchResults && (
                         <div className="mt-2 bg-card border border-edge rounded-lg max-h-[320px] overflow-y-auto divide-y divide-edge">
@@ -499,9 +534,9 @@ function Practice() {
                 </div>
                 {podcasts.length === 0 ? (
                     <p className="text-ink-faint text-sm">沒有可練習的 podcast</p>
-                ) : (
+                ) : viewMode === 'grid' ? (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {podcasts.map((name) => (
+                        {podcasts.map(({ name }) => (
                             <div
                                 key={name}
                                 className="aspect-square bg-card rounded-xl border border-edge p-4 flex flex-col hover:border-edge-strong hover:shadow-sm transition-all"
@@ -530,6 +565,36 @@ function Practice() {
                                         <Volume2 size={13} />
                                     </button>
                                 </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="bg-card border border-edge rounded-xl divide-y divide-edge">
+                        {podcasts.map(({ name, createDate }) => (
+                            <div key={name} className="flex items-center gap-3 px-4 py-2.5">
+                                <span className="flex-1 text-sm font-medium text-ink-soft break-all">{name}</span>
+                                <span className="text-xs text-ink-faint shrink-0 tabular-nums" title="新增時間">
+                                    {createDate ? createDate.slice(0, 10) : '—'}
+                                </span>
+                                <button
+                                    className="px-2.5 py-1.5 text-xs bg-primary text-white rounded-md hover:bg-primary-hover flex items-center gap-1 shrink-0"
+                                    onClick={() => handlePractice(name)}
+                                >
+                                    <Play size={13} />練習
+                                </button>
+                                <button
+                                    className="px-2.5 py-1.5 text-xs text-ink-soft border border-edge-strong rounded-md hover:bg-muted flex items-center gap-1 shrink-0"
+                                    onClick={() => handleRead(name)}
+                                >
+                                    <FileText size={13} />文字
+                                </button>
+                                <button
+                                    className="px-2 py-1.5 text-xs text-ink-soft border border-edge-strong rounded-md hover:bg-muted flex items-center shrink-0"
+                                    onClick={() => setVoiceFolder(name)}
+                                    title="聲音設定"
+                                >
+                                    <Volume2 size={13} />
+                                </button>
                             </div>
                         ))}
                     </div>
