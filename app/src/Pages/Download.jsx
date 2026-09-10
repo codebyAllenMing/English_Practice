@@ -170,7 +170,7 @@ function Download() {
                         type="text"
                         className="w-full px-4 py-2 border border-edge-strong rounded-lg outline-none focus:border-ink-faint text-sm mb-3"
                         value={folderName}
-                        onChange={(e) => setFolderName(e.target.value)}
+                        onChange={(e) => setFolderName(e.target.value.replace(/\s+/g, '_'))}
                     />
                     <div className="flex gap-2">
                         <button

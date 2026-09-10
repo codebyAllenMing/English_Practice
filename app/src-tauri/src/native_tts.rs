@@ -243,7 +243,10 @@ fn parse_line(line: &str) -> (String, String) {
 
 /// f32 [-1,1] 樣本 → 16-bit PCM mono WAV 位元組
 fn wav_bytes(samples: &[f32], sample_rate: u32) -> Vec<u8> {
-	let data_len = (samples.len() * 2) as u32;
+	// 開頭墊 0.4s 靜音:macOS 音訊輸出閒置幾秒會休眠(藍牙裝置尤甚),
+	// 喚醒瞬間的前幾百 ms 會被吞掉——墊靜音讓被吞的不是語音
+	let lead_in = (sample_rate as usize * 2) * 2 / 5; // 0.4s × 2 bytes/sample
+	let data_len = (samples.len() * 2 + lead_in) as u32;
 	let mut out = Vec::with_capacity(44 + data_len as usize);
 	out.extend_from_slice(b"RIFF");
 	out.extend_from_slice(&(36 + data_len).to_le_bytes());
@@ -257,6 +260,7 @@ fn wav_bytes(samples: &[f32], sample_rate: u32) -> Vec<u8> {
 	out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
 	out.extend_from_slice(b"data");
 	out.extend_from_slice(&data_len.to_le_bytes());
+	out.resize(out.len() + lead_in, 0); // 靜音樣本(16-bit 全零)
 	for s in samples {
 		out.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
 	}

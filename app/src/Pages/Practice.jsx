@@ -90,6 +90,7 @@ function Practice() {
         setReady(false)
     }
 
+    // playing 期間鎖住換句(含按鈕 disabled):刻意設計,避免連續按
     const playAt = async (index) => {
         if (index < 0 || index >= lines.length || playing || !ready) return
         setCurrentIndex(index)
@@ -101,10 +102,18 @@ function Practice() {
             const audio = new Audio(`data:audio/wav;base64,${result.audio}`)
             audioRef.current = audio
             audio.onended = () => setPlaying(false)
-            audio.play()
+            audio.onerror = () => {
+                setError(`第 ${index + 1} 句音訊解碼失敗`)
+                setPlaying(false)
+                invoke('log_ui', { msg: `第 ${index + 1} 句 audio element 解碼失敗` }).catch(() => {})
+            }
+            // play() 的 rejection 要接住:合成 await 之後手勢授權可能已失效(WebKit),
+            // 不接的話 playing 卡 true、整頁靜音且無任何線索
+            await audio.play()
         } catch (err) {
-            setError(String(err))
+            setError(`第 ${index + 1} 句播放失敗:${err}`)
             setPlaying(false)
+            invoke('log_ui', { msg: `第 ${index + 1} 句播放失敗: ${err}` }).catch(() => {})
         }
     }
 
@@ -266,7 +275,9 @@ function Practice() {
                 <div className="flex-1 flex flex-col justify-center">
                     {currentData ? (
                         <>
-                            <p className="text-sm text-ink-faint mb-3">[{currentData.speaker}] ({currentData.index + 1}/{currentData.total})</p>
+                            <p className="text-sm text-ink-faint mb-3">
+                                [{currentData.speaker}] ({currentData.index + 1}/{currentData.total}){playing && <span className="ml-2 text-primary">▶ 播放中</span>}
+                            </p>
                             <p className="leading-relaxed" style={{ fontSize: `${fontSize}px` }}>{currentData.text}</p>
                         </>
                     ) : (

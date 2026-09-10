@@ -44,7 +44,7 @@ pub fn fetch_title_impl(url: &str) -> Result<TitleInfo, String> {
 	if !output.status.success() {
 		let stderr = String::from_utf8_lossy(&output.stderr);
 		log_error_line("download", &format!("無法取得標題: {} — {}", url, last_lines(&stderr, 3)));
-		return Err("無法取得標題".to_string());
+		return Err(format!("無法取得標題:{}", error_hint(&stderr)));
 	}
 	let title = String::from_utf8_lossy(&output.stdout).trim().to_string();
 	if title.is_empty() {
@@ -186,7 +186,7 @@ pub fn run_download(
 		);
 		// 失敗時清掉這次建立的資料夾(含 .part 殘檔),避免重試撞「資料夾已存在」
 		let _ = std::fs::remove_dir_all(&folder_path);
-		return Err("下載失敗".to_string());
+		return Err(format!("下載失敗:{}", error_hint(&detail)));
 	}
 
 	log_info_line("download", &format!("下載完成: {} (耗時 {:.1}s)", folder_name, elapsed));
@@ -203,6 +203,20 @@ fn parse_percent(line: &str) -> Option<String> {
 		}
 	}
 	None
+}
+
+/// 從 yt-dlp 輸出撈一行給使用者看的失敗原因:
+/// 優先取最後一行 "ERROR:..."(yt-dlp 慣例把關鍵訊息放這),否則退而取最後一行非空輸出;
+/// 完整輸出仍在 log 檔,這裡只求 UI 上能分辨「影片下架 / 要登入 / 網路斷」這種等級
+fn error_hint(detail: &str) -> String {
+	detail
+		.lines()
+		.rev()
+		.find(|l| l.trim_start().starts_with("ERROR"))
+		.or_else(|| detail.lines().rev().find(|l| !l.trim().is_empty()))
+		.unwrap_or("未知原因(詳見 logs/)")
+		.trim()
+		.to_string()
 }
 
 fn last_lines(text: &str, n: usize) -> String {

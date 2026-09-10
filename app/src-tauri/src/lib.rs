@@ -226,6 +226,12 @@ fn log_error_line(source: &str, message: &str) {
     log_line("error.log", source, message);
 }
 
+/// 前端 UI 異常落 log 檔(如練習頁播放失敗),供事後診斷
+#[tauri::command]
+fn log_ui(msg: String) {
+    log_error_line("ui", &msg);
+}
+
 /// 進行中任務註冊表:防止同一資料夾的長任務(校正/轉譯)被重複觸發
 fn running_tasks() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
     static RUNNING: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
@@ -616,7 +622,8 @@ pub fn run() {
                 native_transcribe::transcribe_audio, correct_transcript, delete_podcast, get_config, save_config, get_lines,
                 native_tts::start_practice, native_tts::stop_practice, native_tts::play_line,
                 native_tts::get_voices, native_tts::save_voices,
-                native_models::models_status, native_models::download_models, native_download::tools_status
+                native_models::models_status, native_models::download_models, native_download::tools_status,
+                log_ui
             ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
