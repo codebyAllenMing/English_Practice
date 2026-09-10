@@ -73,6 +73,25 @@ pub(crate) fn course_language() -> String {
         .unwrap_or_else(|| "en".to_string())
 }
 
+/// AI 模型(config.ai_model,預設 haiku;白名單擋壞值)。校正/講義/助教/詞卡查詢共用
+pub(crate) fn ai_model() -> String {
+    fs::read_to_string(data_dir().join("config.json"))
+        .ok()
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+        .and_then(|v| v["ai_model"].as_str().map(String::from))
+        .filter(|m| matches!(m.as_str(), "haiku" | "sonnet" | "opus"))
+        .unwrap_or_else(|| "haiku".to_string())
+}
+
+/// API 模式的別名 → 具體 model id 對映(CLI 模式把別名交給 claude CLI 自己解析)
+fn api_model_id(alias: &str) -> &'static str {
+    match alias {
+        "sonnet" => "claude-sonnet-5",
+        "opus" => "claude-opus-5",
+        _ => "claude-haiku-4-5",
+    }
+}
+
 /// 集數根目錄依課綱語系分流:podcasts/<lang>/
 pub(crate) fn podcasts_dir() -> PathBuf {
     data_dir().join("podcasts").join(course_language())
@@ -556,7 +575,7 @@ pub(crate) async fn llm_via_api(
     schema: Option<serde_json::Value>,
 ) -> Result<String, String> {
     let mut body = serde_json::json!({
-        "model": "claude-haiku-4-5",
+        "model": api_model_id(&ai_model()),
         "max_tokens": 8192,
         "messages": [{ "role": "user", "content": prompt }]
     });
@@ -597,10 +616,11 @@ pub(crate) async fn llm_via_api(
 
 /// 本機 Claude CLI 路徑:單次 print 呼叫(無 agentic loop、不給工具),吃使用者登入的訂閱額度
 pub(crate) async fn llm_via_cli(prompt: &str) -> Result<String, String> {
+    let model = ai_model();
     let output = tokio::time::timeout(
         std::time::Duration::from_secs(300),
         Command::new(find_tool("claude").unwrap_or_else(|| "claude".into()))
-            .args(["-p", prompt, "--model", "haiku", "--no-session-persistence"])
+            .args(["-p", prompt, "--model", &model, "--no-session-persistence"])
             .current_dir(data_dir())
             .output(),
     )

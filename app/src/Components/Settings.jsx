@@ -8,6 +8,13 @@ const THEME_OPTIONS = [
     { value: 'dark', label: '暗色' },
 ]
 
+// CLI 模式把別名交給 claude CLI 解析;API 模式後端對映到具體 model id
+const MODEL_OPTIONS = [
+    { value: 'haiku', label: 'Haiku(建議)', hint: '最快最省,校正/詞卡/助教這類任務足夠' },
+    { value: 'sonnet', label: 'Sonnet', hint: '更聰明,但較慢、額度/費用較高' },
+    { value: 'opus', label: 'Opus', hint: '最強也最貴,這裡的任務用不太到' },
+]
+
 // 密碼欄位:右側眼睛可切換顯示原始值
 function SecretInput({ value, onChange, placeholder }) {
     const [show, setShow] = useState(false)
@@ -48,6 +55,7 @@ function Settings({ onClose, section }) {
     const title = section === 'correct' ? '校正設定' : '設定'
     const [apiKey, setApiKey] = useState('')
     const [correctionMode, setCorrectionMode] = useState('api')
+    const [aiModel, setAiModel] = useState('haiku')
     const [themePref, setThemePrefState] = useState(getThemePref())
     const [saved, setSaved] = useState(false)
 
@@ -61,6 +69,7 @@ function Settings({ onClose, section }) {
         invoke('get_config').then((config) => {
             setApiKey(config.anthropic_api_key || '')
             setCorrectionMode(config.correction_mode || 'api')
+            setAiModel(config.ai_model || 'haiku')
         })
     }, [])
 
@@ -68,7 +77,7 @@ function Settings({ onClose, section }) {
         try {
             const config = await invoke('get_config')
             await invoke('save_config', {
-                config: { ...config, anthropic_api_key: apiKey, correction_mode: correctionMode },
+                config: { ...config, anthropic_api_key: apiKey, correction_mode: correctionMode, ai_model: aiModel },
             })
             // 通知其他頁面(如校正頁的模式徽章)重讀 config
             window.dispatchEvent(new Event('config-saved'))
@@ -152,6 +161,22 @@ function Settings({ onClose, section }) {
                         />
                     </>
                 )}
+
+                <label className="block text-sm font-medium text-ink-soft mb-2">AI 模型</label>
+                <div className="inline-flex rounded-lg border border-edge-strong overflow-hidden mb-2">
+                    {MODEL_OPTIONS.map((opt) => (
+                        <button
+                            key={opt.value}
+                            className={`px-3 py-1.5 text-sm ${aiModel === opt.value ? 'bg-primary text-white' : 'text-ink-soft hover:bg-card'}`}
+                            onClick={() => setAiModel(opt.value)}
+                        >
+                            {opt.label}
+                        </button>
+                    ))}
+                </div>
+                <p className="text-xs text-ink-faint mb-4">
+                    校正/講義/AI 助教/詞卡查詢共用。{MODEL_OPTIONS.find((o) => o.value === aiModel)?.hint}
+                </p>
                     </>
                 )}
 
