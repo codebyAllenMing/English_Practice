@@ -138,38 +138,43 @@ function Practice() {
         }
     }
 
-    // 點句中詞:toggle 收藏;新收藏時發音 + 彈詞卡(詞性/釋義 AI 即查一次,終身快取)
+    // 點句中詞:發音 + 彈詞卡(詞性/釋義 AI 即查一次,Lookups 表終身快取);收藏改為卡上 ☆ 顯式動作
     const handleWordClick = async (term, reading = '') => {
         if (!currentData) return
         const lineNo = currentData.index + 1
+        playTerm(term)
         const hit = (analysis?.result?.vocab || []).find((x) => x.term === term)
+        const saved = vocabMarks.find((v) => v.lineNo === lineNo && v.term === term)
+        const known = hit?.meaning || saved?.meaning || ''
+        setWordCard({ term, reading, lineNo, meaning: known, loading: !known })
+        if (known) return
+        // 詞性本地即查(ja lindera,毫秒級),AI 釋義到達前先亮出來
+        invoke('term_pos', { term })
+            .then((pos) => {
+                if (pos) setWordCard((c) => (c?.term === term && c.loading ? { ...c, pos } : c))
+            })
+            .catch(() => {})
         try {
-            const marked = await invoke('toggle_vocab', {
+            const res = await invoke('lookup_term', { folder: selected, term, lineNo })
+            setWordCard((c) => (c?.term === term ? { ...c, meaning: res.combined, loading: false } : c))
+        } catch (err) {
+            setWordCard((c) => (c?.term === term ? { ...c, meaning: `查詢失敗：${err}`, loading: false } : c))
+        }
+    }
+
+    // 詞卡 ☆:顯式收藏/取消(meaning 帶詞卡查得的釋義)
+    const handleCardSave = async () => {
+        if (!wordCard) return
+        try {
+            await invoke('toggle_vocab', {
                 folder: selected,
-                lineNo,
-                term,
-                reading: reading || hit?.reading || '',
-                meaning: hit?.meaning || '',
+                lineNo: wordCard.lineNo,
+                term: wordCard.term,
+                reading: wordCard.reading || '',
+                meaning: wordCard.loading ? '' : wordCard.meaning || '',
                 source: 'user',
             })
             setVocabMarks(await invoke('list_vocab', { folder: selected }))
-            if (!marked) {
-                setWordCard(null)
-                return
-            }
-            playTerm(term)
-            if (hit) {
-                setWordCard({ term, reading, meaning: hit.meaning, loading: false })
-                return
-            }
-            setWordCard({ term, reading, meaning: '', loading: true })
-            try {
-                const res = await invoke('lookup_term', { folder: selected, term, lineNo })
-                setWordCard((c) => (c?.term === term ? { ...c, meaning: res.combined, loading: false } : c))
-                setVocabMarks(await invoke('list_vocab', { folder: selected }))
-            } catch (err) {
-                setWordCard((c) => (c?.term === term ? { ...c, meaning: `查詢失敗：${err}`, loading: false } : c))
-            }
         } catch (err) {
             setError(String(err))
         }
@@ -546,7 +551,7 @@ function Practice() {
                             <p
                                 className={currentData.ruby?.length ? 'leading-[2.1]' : 'leading-relaxed'}
                                 style={{ fontSize: `${fontSize}px` }}
-                                title="點單字收藏到生字本,再點取消"
+                                title="點單字:發音+詞性釋義;詞卡上 ☆ 收藏"
                             >
                                 <MarkableText
                                     text={currentData.text}
@@ -563,8 +568,19 @@ function Practice() {
                                         <span className="text-ink-faint text-xs shrink-0 mt-0.5">（{wordCard.reading}）</span>
                                     )}
                                     <span className="text-ink-soft flex-1">
-                                        {wordCard.loading ? '查詢詞性與釋義中…' : wordCard.meaning}
+                                        {wordCard.loading
+                                            ? wordCard.pos
+                                                ? `【${wordCard.pos}】查詢釋義中…`
+                                                : '查詢詞性與釋義中…'
+                                            : wordCard.meaning}
                                     </span>
+                                    <button
+                                        className="text-base text-amber-500 hover:scale-110 transition-transform shrink-0"
+                                        title="加入/移除生字本"
+                                        onClick={handleCardSave}
+                                    >
+                                        {markedSet.has(`${wordCard.lineNo}:${wordCard.term}`) ? '★' : '☆'}
+                                    </button>
                                     <button
                                         className="text-ink-faint hover:text-ink-soft shrink-0"
                                         title="再唸一次"

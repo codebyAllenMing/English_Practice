@@ -228,6 +228,14 @@
 					<li>lastPlayed</li>
 				</ul>
 			</div>
+			<div class="entity">
+				<header>Lookups 即查快取(v2)</header>
+				<ul>
+					<li><span class="k">PK</span> language + folder + lineNo + term</li>
+					<li>meaning <small>(【詞性】語境釋義)</small></li>
+					<li>createDate</li>
+				</ul>
+			</div>
 		</div>
 	</div>
 </div>
@@ -302,6 +310,9 @@
 	</table>
 	<p style="margin-top:8px;">寫入僅 Messages(一問一答各一列,含 anchorLine)。<b>刻意不讀</b>:音檔、其他集逐字稿——對話依集隔離,跨集感知日後走 FTS 查詢工具而非塞 context。呼叫走與校正/講義同一套 <code>llm_via_api / llm_via_cli</code> 雙模式。</p>
 </div>
+
+<h3 class="tbl">Lookups <span class="tag tag-primary">快取・migration v2</span></h3>
+<p class="tbl-desc">點詞即查的結果快取:AI 對「這個詞在這句裡」的詞性+繁中釋義,一詞一次終身免費(收藏與否無關)。以 <code>(language, folder, lineNo, term)</code> 為鍵——同詞不同句允許不同語境解釋。ja 的詞性另有本地 lindera 即顯(term_pos),不佔此表。這是第一張由 migration v2 加入的表,驗證了加法優先的遷移紀律。</p>
 
 <h3 class="tbl">PracticeSessions <span class="tag tag-primary">primary・練習履歷</span></h3>
 <table>

@@ -166,7 +166,7 @@
 			<div class="box"><b>下載</b><span>課綱切換(en/ja)· 取標題 → 確認 → 進度條</span></div>
 			<div class="box"><b>轉譯</b><span>真實百分比進度</span></div>
 			<div class="box"><b>校正</b><span>模式徽章 · 完成自動接跑講義</span></div>
-			<div class="box"><b>練習</b><span>逐句 TTS · 振り仮名 · 本句重點 · 大綱跳句 · 閱讀</span></div>
+			<div class="box"><b>練習</b><span>逐句 TTS · 振り仮名 · 點詞詞卡(發音/詞性/釋義)· 生字本 · 大綱跳句 · AI 助教</span></div>
 			<div class="box"><b>全域狀態</b><span>TranscribeProvider · CorrectionProvider(切頁不遺失)· 課綱徽章</span></div>
 			<div class="box"><b>初始化/更新</b><span>ModelSetup 模型彈窗 · 工具 banner · UpdateBanner 自動更新</span></div>
 		</div>
@@ -177,10 +177,10 @@
 		<div class="boxes">
 			<div class="box"><b>native_download</b><span>spawn yt-dlp · 標題清洗 · 失敗回滾+原因上報</span></div>
 			<div class="box"><b>native_transcribe</b><span>whisper-rs(Metal · 語言依課綱)+ pyannote diarization</span></div>
-			<div class="box"><b>correct / analysis</b><span>llm_via_api・cli 雙模式共用 · 校正+分析講義</span></div>
+			<div class="box"><b>correct / analysis / tutor</b><span>llm_via_api・cli 雙模式共用 · 校正+講義+助教+詞彙即查</span></div>
 			<div class="box"><b>native_tts / voicevox</b><span>en=kokoro in-process · ja=VOICEVOX sidecar</span></div>
 			<div class="box"><b>furigana</b><span>lindera + 內嵌 IPADIC · 詞級標音</span></div>
-			<div class="box"><b>native_models / infra</b><span>下載器(SHA256)· 課綱分流 podcasts_dir · TaskGuard · Keychain</span></div>
+			<div class="box"><b>db / native_models / infra</b><span>SQLite 索引與行為層(rusqlite)· 下載器(SHA256)· 課綱分流 · TaskGuard · Keychain</span></div>
 		</div>
 	</div>
 	<div class="arrow-row">▲▼</div>
@@ -201,6 +201,7 @@
 		<div class="boxes">
 			<div class="box"><b>podcasts/&lt;lang&gt;/&lt;集&gt;/</b><span>依課綱分目錄(路徑即語言)· mp3 · word.raw.txt(不可變)· word.txt · correction.json · analysis.json(講義快取)· voices.json</span></div>
 			<div class="box"><b>models/</b><span>whisper q5_0 574MB · pyannote · titanet · kokoro 393MB · voicevox_engine 2GB(日文按需)</span></div>
+			<div class="box"><b>app.db(SQLite)</b><span>索引/生字本/對話/統計(<a href="db-design.html">設計</a>)</span></div>
 			<div class="box"><b>config.json</b><span>非機密設定 · course_language(600 權限)</span></div>
 			<div class="box"><b>logs/</b><span>info.log · error.log(含前端 log_ui 上報)</span></div>
 		</div>

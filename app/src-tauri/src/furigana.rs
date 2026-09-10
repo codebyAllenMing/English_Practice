@@ -62,6 +62,18 @@ fn kata_to_hira(s: &str) -> String {
 		.collect()
 }
 
+/// 詞性即查(本地 lindera,ja 限定;en 回 null)——AI 釋義到達前先顯示,零延遲
+#[tauri::command]
+pub fn term_pos(term: String) -> Option<String> {
+	if crate::course_language() != "ja" {
+		return None;
+	}
+	let seg = segmenter()?;
+	let mut tokens = seg.segment(Cow::Borrowed(term.as_str())).ok()?;
+	let first = tokens.first_mut()?;
+	first.details().first().filter(|s| **s != "UNK").map(|s| s.to_string())
+}
+
 #[cfg(test)]
 mod tests {
 	#[test]

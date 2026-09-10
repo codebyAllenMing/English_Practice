@@ -108,6 +108,47 @@ fn migrate(c: &Connection) {
 			Err(e) => log_error_line("db", &format!("migration v1 失敗: {}", e)),
 		}
 	}
+	if v < 2 {
+		// v2:詞彙即查快取(收藏與否無關,查過就終身快取;釋義是語境化的,以行為鍵)
+		let result = c.execute_batch(
+			r#"
+			CREATE TABLE Lookups (
+				language TEXT NOT NULL,
+				folder TEXT NOT NULL,
+				lineNo INTEGER NOT NULL,
+				term TEXT NOT NULL,
+				meaning TEXT NOT NULL,
+				createDate TEXT NOT NULL,
+				PRIMARY KEY (language, folder, lineNo, term)
+			);
+			PRAGMA user_version = 2;
+			"#,
+		);
+		match result {
+			Ok(()) => log_info_line("db", "migration v2 完成(Lookups 即查快取)"),
+			Err(e) => log_error_line("db", &format!("migration v2 失敗: {}", e)),
+		}
+	}
+}
+
+/// 即查快取讀取(Lookups 表)
+pub fn get_lookup(language: &str, folder: &str, line_no: i32, term: &str) -> Option<String> {
+	let c = conn();
+	c.query_row(
+		"SELECT meaning FROM Lookups WHERE language = ?1 AND folder = ?2 AND lineNo = ?3 AND term = ?4",
+		rusqlite::params![language, folder, line_no, term],
+		|r| r.get::<_, String>(0),
+	)
+	.ok()
+}
+
+/// 即查結果寫入快取
+pub fn put_lookup(language: &str, folder: &str, line_no: i32, term: &str, meaning: &str) {
+	let c = conn();
+	let _ = c.execute(
+		"INSERT OR REPLACE INTO Lookups (language, folder, lineNo, term, meaning, createDate) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+		rusqlite::params![language, folder, line_no, term, meaning, now()],
+	);
 }
 
 // ── derived 表維護(掃描重建/單集刷新)──

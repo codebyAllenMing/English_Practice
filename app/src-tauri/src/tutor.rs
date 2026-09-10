@@ -14,7 +14,7 @@ pub async fn lookup_term(folder: String, term: String, line_no: i32) -> Result<s
 		return Err("空白詞".to_string());
 	}
 	let lang = crate::course_language();
-	if let Some(cached) = crate::db::get_vocab_meaning(&lang, &folder, line_no, &term) {
+	if let Some(cached) = crate::db::get_lookup(&lang, &folder, line_no, &term) {
 		return Ok(serde_json::json!({ "combined": cached, "cached": true }));
 	}
 	// 出處句當語境,解釋「在這句裡」的用法而非字典泛解
@@ -58,6 +58,8 @@ pub async fn lookup_term(folder: String, term: String, line_no: i32) -> Result<s
 				}
 				let combined =
 					if pos.is_empty() { meaning.clone() } else { format!("【{}】{}", pos, meaning) };
+				crate::db::put_lookup(&lang, &folder, line_no, &term, &combined);
+				// 已收藏但釋義空白的列順手補上
 				crate::db::set_vocab_meaning(&lang, &folder, line_no, &term, &combined);
 				return Ok(serde_json::json!({ "combined": combined, "cached": false }));
 			}

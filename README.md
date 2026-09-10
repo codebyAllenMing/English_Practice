@@ -1,20 +1,22 @@
-# English Practice
+# 語言影子練習(English Practice)
 
-用 YouTube Podcast 練習英文聽力的 macOS 桌面應用(Apple Silicon)。
+用 YouTube Podcast 做跟讀(shadowing)練習的 macOS 桌面應用(Apple Silicon),**雙課綱:英文/日文**。
 
-貼上連結 → 本地轉譯(含說話者辨識)→ AI 校正 → 逐句 TTS 跟讀練習。
-**推論全部在本機原生執行**:whisper.cpp(Metal)+ sherpa-onnx,不需雲端、不需 Python 環境、模型下載後完全離線。
+貼上連結 → 本地轉譯(含說話者辨識)→ AI 校正+講義 → 逐句 TTS 跟讀 → 點詞查釋義、生字本、AI 助教。
+**推論全部在本機原生執行**:whisper.cpp(Metal)+ sherpa-onnx + VOICEVOX,不需雲端、不需 Python 環境、模型下載後完全離線(AI 校正/講義/助教除外)。
 
-> 架構與流程圖:[docs/architecture.html](docs/architecture.html)
+> 設計文件:[系統架構](docs/architecture.html) · [資料流](docs/pipeline-flow.html) · [資料庫設計](docs/db-design.html) · [資料層目的](docs/data-flow.html)
 
 <img src="docs/screenshots/practice-read.png" width="800" alt="文字閱讀模式:句級斷行與講者標籤">
 
 ## 特色
 
-- **原生轉譯管線**——whisper.cpp(Metal GPU)逐詞時間戳 + pyannote 說話者分離,句子優先斷行、行內多數決歸戶
-- **AI 校正(雙模式)**——Anthropic API(structured outputs 強制 JSON)或本機 Claude CLI;修正聽錯的字、標點,辨識講者真名與性別;只修錯不改寫,保住聽力素材保真
-- **逐句 TTS 練習**——kokoro 語音合成,依講者性別自動配音(男/女聲池),可手動指定 12 種美音
-- **首次啟動自動初始化**——模型下載器(953MB,SHA256 驗證),之後全離線
+- **原生轉譯管線**——whisper.cpp(Metal GPU)逐詞時間戳 + pyannote 說話者分離,句子優先斷行、行內多數決歸戶;多語模型,日文自動切換斷行規則
+- **AI 校正+分析講義(雙模式)**——Anthropic API(structured outputs)或本機 Claude CLI;校正只修錯不改寫;講義自動生成大綱(點分段跳句)與詞彙精講(錨定行號),一次生成終身快取
+- **逐句 TTS 練習**——英文 kokoro(12 美音)、日文 VOICEVOX(自然神經式聲線);依講者性別自動配音,可手動指定
+- **點詞三合一**——點句中單字:發音+詞卡(讀音/詞性/語境化繁中釋義,AI 即查一次終身快取),☆ 進生字本;日文全程振り仮名標音(本地 lindera 字典)
+- **AI 助教**——依集隔離的問答視窗,自動夾帶當前句,對話跨 session 記憶(SQLite)
+- **首次啟動自動初始化**——模型下載器(953MB,SHA256 驗證);日文語音引擎(1.8GB)按需下載
 
 ## 畫面
 
@@ -112,12 +114,14 @@ API key 進 Keychain、模型 SHA256 驗證、路徑跳脫防護、嚴格 CSP、
 ## Roadmap
 
 - [x] 自動更新(Tauri updater + GitHub Releases)
-- [ ] 生字本:練習中標記單字 → n8n webhook → Google Sheets
+- [x] 日文課綱(轉譯/校正/講義/VOICEVOX 發音/振り仮名)
+- [x] 生字本(點詞收藏,SQLite 本地閉環)+ AI 助教
+- [ ] 間隔複習(SRS)、難句統計、跨集全文檢索 UI
 - [ ] 簽名與公證(Apple Developer)
 - [ ] CI 自動建置發佈
 
 ## 技術棧
 
-Tauri 2 · Rust(tokio / whisper-rs / sherpa-onnx / reqwest)· React 19 · Vite · Tailwind v4 · Anthropic API(claude-haiku-4-5, structured outputs)· [VOICEVOX](https://voicevox.hiroshiba.jp/)(日文 TTS,按需下載)
+Tauri 2 · Rust(tokio / whisper-rs / sherpa-onnx / rusqlite / lindera / reqwest)· React 19 · Vite · Tailwind v4 · SQLite(FTS5)· Anthropic API(claude-haiku-4-5, structured outputs)· [VOICEVOX](https://voicevox.hiroshiba.jp/)(日文 TTS,按需下載)
 
 > 日文語音引擎:VOICEVOX(音源標示:VOICEVOX:春日部つむぎ、VOICEVOX:玄野武宏)
