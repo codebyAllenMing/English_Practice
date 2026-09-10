@@ -23,9 +23,26 @@ fn main() {
 		Some("analyze") => run_analyze(&args),
 		Some("db") => app_lib::db::rebuild_index(),
 		Some("ask") => run_ask(&args),
+		Some("lookup") => run_lookup(&args),
 		Some(folder) => run_transcribe(folder),
 		None => {
 			eprintln!("用法: native_test <folder> | tts <folder> <line-index> <out.wav> | sid <sid> <out.wav> | title <url> | download <url> <folder> | models [data-dir] | analyze <folder>");
+			std::process::exit(1);
+		}
+	}
+}
+
+// 詞彙即查測試:lookup <folder> <term> <lineNo>
+fn run_lookup(args: &[String]) {
+	let (Some(folder), Some(term), Some(line)) = (args.get(2), args.get(3), args.get(4)) else {
+		eprintln!("用法: native_test lookup <folder> <term> <lineNo>");
+		std::process::exit(1);
+	};
+	let rt = tokio::runtime::Runtime::new().expect("建立 runtime 失敗");
+	match rt.block_on(app_lib::tutor::lookup_term(folder.clone(), term.clone(), line.parse().unwrap_or(1))) {
+		Ok(res) => println!("LOOKUP: {}", res),
+		Err(e) => {
+			eprintln!("ERROR: {}", e);
 			std::process::exit(1);
 		}
 	}

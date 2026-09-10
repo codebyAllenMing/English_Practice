@@ -5,6 +5,68 @@
 
 use crate::{load_config_merged, podcasts_dir, try_begin_task, validate_folder};
 
+/// 點生字時的即查:詞性 + 語境化繁中釋義(AI 一次、寫回 VocabItems 終身快取)
+#[tauri::command]
+pub async fn lookup_term(folder: String, term: String, line_no: i32) -> Result<serde_json::Value, String> {
+	validate_folder(&folder)?;
+	let term = term.trim().to_string();
+	if term.is_empty() {
+		return Err("空白詞".to_string());
+	}
+	let lang = crate::course_language();
+	if let Some(cached) = crate::db::get_vocab_meaning(&lang, &folder, line_no, &term) {
+		return Ok(serde_json::json!({ "combined": cached, "cached": true }));
+	}
+	// 出處句當語境,解釋「在這句裡」的用法而非字典泛解
+	let sentence = crate::native_tts::read_line(&folder, line_no - 1).map(|(_, t, _)| t).unwrap_or_default();
+	let lang_name = if lang == "ja" { "Japanese" } else { "English" };
+	let prompt = format!(
+		"Term: {}\nSentence: {}\n\nThe term is {} as used in the sentence above. \
+		Respond with ONLY a JSON object {{\"pos\": \"...\", \"meaning\": \"...\"}} — \
+		pos is the part of speech in Traditional Chinese (e.g. 名詞/動詞/形容詞/副詞/慣用語/文法), \
+		meaning is ONE concise Traditional Chinese sentence explaining the term AS USED in this sentence. \
+		No markdown, no explanations outside the JSON.",
+		term, sentence, lang_name
+	);
+	let config = load_config_merged();
+	let mode = config["correction_mode"].as_str().unwrap_or("api").to_string();
+	// CLI 偶發非 JSON 輸出(實測過),點詞是高頻互動,失敗自動重試一次
+	let mut last_err = "查詢失敗".to_string();
+	for _ in 0..2 {
+		let result_text = if mode == "cli" {
+			crate::llm_via_cli(&prompt).await?
+		} else {
+			let api_key = config["anthropic_api_key"]
+				.as_str()
+				.filter(|k| !k.is_empty())
+				.ok_or("請先在設定填入 Anthropic API Key(或切換為本機 Claude CLI 模式)")?;
+			let schema = serde_json::json!({
+				"type": "object",
+				"properties": { "pos": { "type": "string" }, "meaning": { "type": "string" } },
+				"required": ["pos", "meaning"],
+				"additionalProperties": false
+			});
+			crate::llm_via_api(api_key, &prompt, Some(schema)).await?
+		};
+		match serde_json::from_str::<serde_json::Value>(crate::extract_json(&result_text)) {
+			Ok(parsed) => {
+				let pos = parsed["pos"].as_str().unwrap_or("").to_string();
+				let meaning = parsed["meaning"].as_str().unwrap_or("").to_string();
+				if meaning.is_empty() {
+					last_err = "查詢結果為空".to_string();
+					continue;
+				}
+				let combined =
+					if pos.is_empty() { meaning.clone() } else { format!("【{}】{}", pos, meaning) };
+				crate::db::set_vocab_meaning(&lang, &folder, line_no, &term, &combined);
+				return Ok(serde_json::json!({ "combined": combined, "cached": false }));
+			}
+			Err(e) => last_err = format!("解析查詢結果失敗: {}", e),
+		}
+	}
+	Err(last_err)
+}
+
 #[tauri::command]
 pub async fn ask_tutor(folder: String, question: String, anchor_line: i32) -> Result<serde_json::Value, String> {
 	validate_folder(&folder)?;

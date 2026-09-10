@@ -101,17 +101,12 @@ pub fn shutdown_blocking(state: &JaTtsState) {
 	}
 }
 
-/// 日文版 play_line:與 kokoro 路徑同一份 JSON 合約
-pub async fn play_line_ja(state: &JaTtsState, folder: &str, index: i32) -> Result<serde_json::Value, String> {
-	let (speaker, text, total) = crate::native_tts::read_line(folder, index)?;
-	let mut guard = state.0.lock().await;
-	let engine = guard.as_mut().ok_or("練習模式未啟動")?;
-
-	let sid = resolve_ja_sid(engine, folder, &speaker);
+/// 單段文字合成(audio_query → synthesis → 0.4s 靜音墊片);play_line 與單詞發音共用
+async fn synth(engine: &mut JaEngine, text: &str, sid: i32) -> Result<Vec<u8>, String> {
 	let query = engine
 		.client
 		.post(format!("{}/audio_query", base_url()))
-		.query(&[("text", text.as_str()), ("speaker", &sid.to_string())])
+		.query(&[("text", text), ("speaker", &sid.to_string())])
 		.timeout(std::time::Duration::from_secs(30))
 		.send()
 		.await
@@ -130,16 +125,33 @@ pub async fn play_line_ja(state: &JaTtsState, folder: &str, index: i32) -> Resul
 		.send()
 		.await
 		.and_then(|r| r.error_for_status())
-		.map_err(|e| {
-			log_error_line("practice", &format!("[{}] 第 {} 行 VOICEVOX 合成失敗: {}", folder, index + 1, e));
-			"無法產生音訊".to_string()
-		})?
+		.map_err(|e| format!("合成失敗: {}", e))?
 		.bytes()
 		.await
 		.map_err(|e| format!("合成失敗: {}", e))?
 		.to_vec();
 
-	let wav = pad_wav_lead_in(wav, 0.4);
+	Ok(pad_wav_lead_in(wav, 0.4))
+}
+
+/// 單詞/短句發音(引擎未啟動則回錯,由呼叫端決定是否先 ensure_started)
+pub async fn speak(state: &JaTtsState, text: &str) -> Result<Vec<u8>, String> {
+	let mut guard = state.0.lock().await;
+	let engine = guard.as_mut().ok_or("練習模式未啟動")?;
+	synth(engine, text, SPEAKER_F).await
+}
+
+/// 日文版 play_line:與 kokoro 路徑同一份 JSON 合約
+pub async fn play_line_ja(state: &JaTtsState, folder: &str, index: i32) -> Result<serde_json::Value, String> {
+	let (speaker, text, total) = crate::native_tts::read_line(folder, index)?;
+	let mut guard = state.0.lock().await;
+	let engine = guard.as_mut().ok_or("練習模式未啟動")?;
+
+	let sid = resolve_ja_sid(engine, folder, &speaker);
+	let wav = synth(engine, &text, sid).await.map_err(|e| {
+		log_error_line("practice", &format!("[{}] 第 {} 行 VOICEVOX 合成失敗: {}", folder, index + 1, e));
+		e
+	})?;
 	Ok(serde_json::json!({
 		"speaker": speaker,
 		"text": text,

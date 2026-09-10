@@ -317,6 +317,27 @@ pub fn list_vocab(folder: Option<String>) -> Result<Vec<serde_json::Value>, Stri
 	Ok(rows.flatten().collect())
 }
 
+/// 已標記生字的釋義快取查詢(AI 即查一次、終身快取的讀端)
+pub fn get_vocab_meaning(language: &str, folder: &str, line_no: i32, term: &str) -> Option<String> {
+	let c = conn();
+	c.query_row(
+		"SELECT meaning FROM VocabItems WHERE language = ?1 AND folder = ?2 AND lineNo = ?3 AND term = ?4",
+		rusqlite::params![language, folder, line_no, term],
+		|r| r.get::<_, String>(0),
+	)
+	.ok()
+	.filter(|m| !m.is_empty())
+}
+
+/// AI 查得的詞性+釋義寫回生字(合併字串「【詞性】釋義」)
+pub fn set_vocab_meaning(language: &str, folder: &str, line_no: i32, term: &str, meaning: &str) {
+	let c = conn();
+	let _ = c.execute(
+		"UPDATE VocabItems SET meaning = ?5 WHERE language = ?1 AND folder = ?2 AND lineNo = ?3 AND term = ?4 AND meaning = ''",
+		rusqlite::params![language, folder, line_no, term, meaning],
+	);
+}
+
 // ── tutor 對話(primary)──
 
 pub fn insert_message(language: &str, folder: &str, role: &str, content: &str, anchor_line: Option<i32>) {

@@ -243,6 +243,37 @@ fn read_json(path: &std::path::Path) -> Option<serde_json::Value> {
 	serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
+/// 單詞/短句發音:點生字時即時唸一次。ja 走 VOICEVOX(未啟動則代為啟動)、en 走 kokoro(未載入則載)
+#[tauri::command]
+pub async fn speak_term(app: tauri::AppHandle, term: String) -> Result<serde_json::Value, String> {
+	let term = term.trim().to_string();
+	if term.is_empty() {
+		return Err("空白詞".to_string());
+	}
+	if crate::course_language() == "ja" {
+		let state = app.state::<crate::native_voicevox::JaTtsState>();
+		crate::native_voicevox::ensure_started(&state).await?;
+		let wav = crate::native_voicevox::speak(&state, &term).await?;
+		return Ok(serde_json::json!({ "audio": BASE64.encode(&wav) }));
+	}
+	let state = app.state::<TtsState>();
+	let mut guard = state.0.lock().await;
+	if guard.is_none() {
+		*guard = Some(tokio::task::block_in_place(load_engine)?);
+	}
+	let engine = guard.as_mut().unwrap();
+	let audio = tokio::task::block_in_place(|| {
+		engine.tts.generate_with_config(
+			&term,
+			&GenerationConfig { sid: 3, speed: 1.0, ..Default::default() }, // af_heart 固定當朗讀聲
+			None::<fn(&[f32], f32) -> bool>,
+		)
+	})
+	.ok_or("無法產生音訊")?;
+	let wav = wav_bytes(audio.samples(), audio.sample_rate() as u32);
+	Ok(serde_json::json!({ "audio": BASE64.encode(&wav) }))
+}
+
 /// 每集的手動聲音指定(voices.json);不存在時回空物件
 #[tauri::command]
 pub fn get_voices(folder: String) -> Result<serde_json::Value, String> {

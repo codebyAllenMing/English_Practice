@@ -684,7 +684,7 @@ pub fn run() {
                 native_models::voicevox_status, native_models::download_voicevox,
                 native_analysis::analyze_transcript, native_analysis::get_analysis,
                 furigana::get_ruby, db::toggle_vocab, db::list_vocab, db::list_messages,
-                tutor::ask_tutor, log_ui
+                tutor::ask_tutor, tutor::lookup_term, native_tts::speak_term, log_ui
             ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")

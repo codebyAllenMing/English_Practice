@@ -87,6 +87,7 @@ function Practice() {
     const [analyzing, setAnalyzing] = useState(false)
     const [outlineOpen, setOutlineOpen] = useState(false)
     const [vocabMarks, setVocabMarks] = useState([]) // 本集已標記生字(高亮用)
+    const [wordCard, setWordCard] = useState(null) // 點詞後的詞卡 {term, reading, meaning, loading}
     const [allVocab, setAllVocab] = useState([]) // 清單頁生字本(目前課綱全部)
     const [vocabOpen, setVocabOpen] = useState(false)
     const audioRef = useRef(null)
@@ -127,19 +128,63 @@ function Practice() {
 
     const markedSet = useMemo(() => new Set(vocabMarks.map((v) => `${v.lineNo}:${v.term}`)), [vocabMarks])
 
-    // 點詞/⭐ 收藏:同鍵再點=取消;meaning 從講義同詞條帶入
-    const handleToggleVocab = async (term, reading = '', meta = null) => {
-        if (!currentData) return
-        const lineNo = meta?.line || currentData.index + 1
-        const hit = meta || (analysis?.result?.vocab || []).find((x) => x.term === term)
+    // 單詞發音(ja=VOICEVOX、en=kokoro);失敗不擋收藏
+    const playTerm = async (term) => {
         try {
-            await invoke('toggle_vocab', {
+            const res = await invoke('speak_term', { term })
+            new Audio(`data:audio/wav;base64,${res.audio}`).play().catch(() => {})
+        } catch (err) {
+            console.error(err)
+        }
+    }
+
+    // 點句中詞:toggle 收藏;新收藏時發音 + 彈詞卡(詞性/釋義 AI 即查一次,終身快取)
+    const handleWordClick = async (term, reading = '') => {
+        if (!currentData) return
+        const lineNo = currentData.index + 1
+        const hit = (analysis?.result?.vocab || []).find((x) => x.term === term)
+        try {
+            const marked = await invoke('toggle_vocab', {
                 folder: selected,
                 lineNo,
                 term,
                 reading: reading || hit?.reading || '',
                 meaning: hit?.meaning || '',
-                source: meta ? 'analysis' : 'user',
+                source: 'user',
+            })
+            setVocabMarks(await invoke('list_vocab', { folder: selected }))
+            if (!marked) {
+                setWordCard(null)
+                return
+            }
+            playTerm(term)
+            if (hit) {
+                setWordCard({ term, reading, meaning: hit.meaning, loading: false })
+                return
+            }
+            setWordCard({ term, reading, meaning: '', loading: true })
+            try {
+                const res = await invoke('lookup_term', { folder: selected, term, lineNo })
+                setWordCard((c) => (c?.term === term ? { ...c, meaning: res.combined, loading: false } : c))
+                setVocabMarks(await invoke('list_vocab', { folder: selected }))
+            } catch (err) {
+                setWordCard((c) => (c?.term === term ? { ...c, meaning: `查詢失敗：${err}`, loading: false } : c))
+            }
+        } catch (err) {
+            setError(String(err))
+        }
+    }
+
+    // 講義卡 ☆:收藏(meaning 現成,不彈卡)
+    const handleStarVocab = async (v) => {
+        try {
+            await invoke('toggle_vocab', {
+                folder: selected,
+                lineNo: v.line,
+                term: v.term,
+                reading: v.reading || '',
+                meaning: v.meaning || '',
+                source: 'analysis',
             })
             setVocabMarks(await invoke('list_vocab', { folder: selected }))
         } catch (err) {
@@ -245,6 +290,7 @@ function Practice() {
         setCurrentIndex(index)
         setPlaying(true)
         setError('')
+        setWordCard(null)
         try {
             const result = await invoke('play_line', { folder: selected, index })
             setCurrentData(result)
@@ -375,6 +421,13 @@ function Practice() {
                                         <span className="text-ink-soft flex-1 text-xs truncate">{v.meaning}</span>
                                         <span className="text-ink-faint text-xs shrink-0">{v.folder} L{v.lineNo}</span>
                                         <button
+                                            className="text-ink-faint/60 hover:text-ink-soft shrink-0 text-xs"
+                                            title="發音"
+                                            onClick={() => playTerm(v.term)}
+                                        >
+                                            🔊
+                                        </button>
+                                        <button
                                             className="text-ink-faint/60 hover:text-red-500 dark:hover:text-red-400 shrink-0 text-xs"
                                             title="移除"
                                             onClick={() => handleRemoveVocab(v)}
@@ -500,9 +553,33 @@ function Practice() {
                                     ruby={currentData.ruby}
                                     lineNo={currentData.index + 1}
                                     markedSet={markedSet}
-                                    onToggle={handleToggleVocab}
+                                    onToggle={handleWordClick}
                                 />
                             </p>
+                            {wordCard && (
+                                <div className="mt-3 p-3 rounded-lg bg-card border border-edge text-sm flex items-start gap-2">
+                                    <span className="font-bold shrink-0">{wordCard.term}</span>
+                                    {wordCard.reading && (
+                                        <span className="text-ink-faint text-xs shrink-0 mt-0.5">（{wordCard.reading}）</span>
+                                    )}
+                                    <span className="text-ink-soft flex-1">
+                                        {wordCard.loading ? '查詢詞性與釋義中…' : wordCard.meaning}
+                                    </span>
+                                    <button
+                                        className="text-ink-faint hover:text-ink-soft shrink-0"
+                                        title="再唸一次"
+                                        onClick={() => playTerm(wordCard.term)}
+                                    >
+                                        🔊
+                                    </button>
+                                    <button
+                                        className="text-ink-faint/60 hover:text-ink-soft shrink-0"
+                                        onClick={() => setWordCard(null)}
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            )}
                             {(vocabByLine[currentData.index + 1] || []).length > 0 && (
                                 <div className="mt-4 space-y-2">
                                     <p className="text-xs text-ink-faint">本句重點</p>
@@ -511,13 +588,22 @@ function Practice() {
                                             key={i}
                                             className="relative p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/40"
                                         >
-                                            <button
-                                                className="absolute top-2 right-2 text-base text-amber-500 hover:scale-110 transition-transform"
-                                                title="收藏到生字本"
-                                                onClick={() => handleToggleVocab(v.term, v.reading || '', v)}
-                                            >
-                                                {markedSet.has(`${v.line}:${v.term}`) ? '★' : '☆'}
-                                            </button>
+                                            <div className="absolute top-2 right-2 flex items-center gap-1.5">
+                                                <button
+                                                    className="text-sm text-ink-faint hover:text-ink-soft"
+                                                    title="發音"
+                                                    onClick={() => playTerm(v.term)}
+                                                >
+                                                    🔊
+                                                </button>
+                                                <button
+                                                    className="text-base text-amber-500 hover:scale-110 transition-transform"
+                                                    title="收藏到生字本"
+                                                    onClick={() => handleStarVocab(v)}
+                                                >
+                                                    {markedSet.has(`${v.line}:${v.term}`) ? '★' : '☆'}
+                                                </button>
+                                            </div>
                                             <p className="text-sm pr-6">
                                                 <span className="font-bold">{v.term}</span>
                                                 {v.reading && <span className="text-ink-faint ml-1">（{v.reading}）</span>}

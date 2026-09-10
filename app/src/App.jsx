@@ -16,6 +16,14 @@ function App() {
 
     useEffect(() => {
         applyTheme()
+        // WKWebView 預設把 Backspace 當「上一頁」,非輸入框狀態按 delete 會跳走路由——全域擋掉
+        const blockBackspaceNav = (e) => {
+            if (e.key !== 'Backspace') return
+            const t = e.target
+            const editable = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable
+            if (!editable) e.preventDefault()
+        }
+        window.addEventListener('keydown', blockBackspaceNav)
         const loadLang = () => {
             invoke('get_config')
                 .then((config) => setLang(config.course_language || 'en'))
@@ -25,6 +33,7 @@ function App() {
         window.addEventListener('config-saved', loadLang)
         const unwatch = watchSystemTheme()
         return () => {
+            window.removeEventListener('keydown', blockBackspaceNav)
             window.removeEventListener('config-saved', loadLang)
             unwatch()
         }
