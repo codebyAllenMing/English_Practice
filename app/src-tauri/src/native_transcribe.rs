@@ -35,10 +35,6 @@ struct Word {
 
 #[tauri::command]
 pub async fn transcribe_audio(app: tauri::AppHandle, folder: String) -> Result<String, String> {
-	// 非英文課綱先擋下:whisper 語言參數與斷行規則尚未支援其他語系
-	if crate::course_language() != "en" {
-		return Err("此課綱語系的轉譯管線尚未就緒(目前僅支援英文)".to_string());
-	}
 	crate::validate_folder(&folder)?;
 	let _guard = crate::try_begin_task("轉譯", &folder)?;
 	let progress_app = app.clone();
@@ -157,8 +153,11 @@ fn run_whisper(samples: &[f32], progress: &Progress) -> Result<Vec<Word>, String
 		.map_err(|e| format!("載入 whisper 模型失敗: {}", e))?;
 	let mut state = ctx.create_state().map_err(|e| format!("建立 whisper state 失敗: {}", e))?;
 
+	// 轉譯語言跟課綱走(模型是 large-v3-turbo 多語版,en/ja 共用);
+	// lang 需宣告在 params 之前:FullParams 借用其字串,drop 順序才合法
+	let lang = crate::course_language();
 	let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-	params.set_language(Some("en"));
+	params.set_language(Some(&lang));
 	params.set_translate(false);
 	params.set_print_special(false);
 	params.set_print_progress(false);
@@ -233,6 +232,10 @@ fn run_diarization(samples: &[f32]) -> Result<Vec<OfflineSpeakerDiarizationSegme
 /// 避免邊界詞跳槽把一句話切成碎片(如 "It" / "really does.")
 fn build_lines(words: &[Word], turns: &[OfflineSpeakerDiarizationSegment]) -> Vec<String> {
 	const MAX_LINE_WORDS: usize = 60;
+	// 日文的「詞」是 whisper 依空白切出的長短不一片段(常是整個子句),
+	// 詞數上限會失真成巨型長行;改以累積字元數當保險上限
+	const MAX_LINE_CHARS_JA: usize = 60;
+	let char_cap = crate::course_language() == "ja";
 
 	let mut speakers: Vec<Option<i32>> = words.iter().map(|w| assign_speaker(w, turns)).collect();
 	smooth_speakers(&mut speakers);
@@ -240,13 +243,19 @@ fn build_lines(words: &[Word], turns: &[OfflineSpeakerDiarizationSegment]) -> Ve
 	let mut first_seen: Vec<i32> = Vec::new();
 	let mut lines: Vec<String> = Vec::new();
 	let mut cur: Vec<(&str, Option<i32>)> = Vec::new();
+	let mut cur_chars = 0usize;
 
 	for (word, speaker) in words.iter().zip(speakers.iter()) {
 		cur.push((&word.text, *speaker));
+		cur_chars += word.text.chars().count();
 		let sentence_end =
-			word.text.ends_with('.') || word.text.ends_with('?') || word.text.ends_with('!');
-		if sentence_end || cur.len() >= MAX_LINE_WORDS {
+			word.text.ends_with('.') || word.text.ends_with('?') || word.text.ends_with('!')
+				// 日文句末標點(全形);「。」為主,問驚嘆同收
+				|| word.text.ends_with('。') || word.text.ends_with('?') || word.text.ends_with('!');
+		let over_cap = if char_cap { cur_chars >= MAX_LINE_CHARS_JA } else { cur.len() >= MAX_LINE_WORDS };
+		if sentence_end || over_cap {
 			flush_sentence(&mut cur, &mut first_seen, &mut lines);
+			cur_chars = 0;
 		}
 	}
 	flush_sentence(&mut cur, &mut first_seen, &mut lines);

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { invoke } from '@tauri-apps/api/core'
 import { applyTheme, watchSystemTheme } from './theme'
 import Download from './Pages/Download'
 import Transcribe from './Pages/Transcribe'
@@ -11,10 +12,22 @@ import UpdateBanner from './Components/UpdateBanner'
 
 function App() {
     const [showSettings, setShowSettings] = useState(false)
+    const [lang, setLang] = useState('en') // 課綱語系,導覽列常駐顯示
 
     useEffect(() => {
         applyTheme()
-        return watchSystemTheme()
+        const loadLang = () => {
+            invoke('get_config')
+                .then((config) => setLang(config.course_language || 'en'))
+                .catch(() => {})
+        }
+        loadLang()
+        window.addEventListener('config-saved', loadLang)
+        const unwatch = watchSystemTheme()
+        return () => {
+            window.removeEventListener('config-saved', loadLang)
+            unwatch()
+        }
     }, [])
 
     return (
@@ -35,6 +48,16 @@ function App() {
                         練習
                     </NavLink>
                 </div>
+                <span
+                    className={`text-xs px-2.5 py-1 rounded-full mr-3 ${
+                        lang === 'ja'
+                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+                            : 'bg-muted text-ink-soft'
+                    }`}
+                    title="目前課綱語系(在下載頁切換)"
+                >
+                    課綱：{lang === 'ja' ? '日文' : '英文'}
+                </span>
                 <button
                     className="p-2 text-ink-faint hover:text-ink-soft rounded-md hover:bg-muted"
                     onClick={() => setShowSettings(true)}

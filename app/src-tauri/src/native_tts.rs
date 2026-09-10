@@ -57,6 +57,10 @@ pub struct TtsState(pub Mutex<Option<TtsEngine>>);
 
 #[tauri::command]
 pub async fn start_practice(app: tauri::AppHandle) -> Result<(), String> {
+	// kokoro 英文聲線唸不了日文,日文課綱先擋語音合成;閱讀模式不經此處不受影響
+	if crate::course_language() != "en" {
+		return Err("此課綱語系的語音合成尚未就緒(可先用閱讀模式)".to_string());
+	}
 	let state = app.state::<TtsState>();
 	let mut guard = state.0.lock().await;
 	if guard.is_some() {

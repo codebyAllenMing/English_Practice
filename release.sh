@@ -23,12 +23,12 @@ BUNDLE="$ROOT/app/src-tauri/target/release/bundle"
 OUT="$ROOT/release-out/v$VERSION"
 rm -rf "$OUT" && mkdir -p "$OUT"
 
-# GitHub 會把資產檔名的空白換成點,先統一改成底線命名
-cp "$BUNDLE/macos/English Practice.app.tar.gz"     "$OUT/English_Practice_${VERSION}_aarch64.app.tar.gz"
-cp "$BUNDLE/macos/English Practice.app.tar.gz.sig" "$OUT/English_Practice_${VERSION}_aarch64.app.tar.gz.sig"
-cp "$BUNDLE/dmg/English Practice_${VERSION}_aarch64.dmg" "$OUT/English_Practice_${VERSION}_aarch64.dmg"
+# app 名為中文(語言影子練習),GitHub 資產一律轉 ASCII 底線命名(空白/非 ASCII 會被改寫)
+cp "$BUNDLE/macos/語言影子練習.app.tar.gz"     "$OUT/Language_Shadowing_${VERSION}_aarch64.app.tar.gz"
+cp "$BUNDLE/macos/語言影子練習.app.tar.gz.sig" "$OUT/Language_Shadowing_${VERSION}_aarch64.app.tar.gz.sig"
+cp "$BUNDLE/dmg/語言影子練習_${VERSION}_aarch64.dmg" "$OUT/Language_Shadowing_${VERSION}_aarch64.dmg"
 
-SIG=$(cat "$OUT/English_Practice_${VERSION}_aarch64.app.tar.gz.sig")
+SIG=$(cat "$OUT/Language_Shadowing_${VERSION}_aarch64.app.tar.gz.sig")
 PUB_DATE=$(date -u "+%Y-%m-%dT%H:%M:%SZ")
 
 cat > "$OUT/latest.json" <<EOF
@@ -39,7 +39,7 @@ cat > "$OUT/latest.json" <<EOF
 	"platforms": {
 		"darwin-aarch64": {
 			"signature": "$SIG",
-			"url": "https://github.com/$REPO/releases/download/v$VERSION/English_Practice_${VERSION}_aarch64.app.tar.gz"
+			"url": "https://github.com/$REPO/releases/download/v$VERSION/Language_Shadowing_${VERSION}_aarch64.app.tar.gz"
 		}
 	}
 }
@@ -51,8 +51,8 @@ ls -lh "$OUT"
 echo ""
 echo "==> 建立 GitHub Release(自己執行):"
 echo "gh release create v$VERSION \\"
-echo "  \"$OUT/English_Practice_${VERSION}_aarch64.dmg\" \\"
-echo "  \"$OUT/English_Practice_${VERSION}_aarch64.app.tar.gz\" \\"
-echo "  \"$OUT/English_Practice_${VERSION}_aarch64.app.tar.gz.sig\" \\"
+echo "  \"$OUT/Language_Shadowing_${VERSION}_aarch64.dmg\" \\"
+echo "  \"$OUT/Language_Shadowing_${VERSION}_aarch64.app.tar.gz\" \\"
+echo "  \"$OUT/Language_Shadowing_${VERSION}_aarch64.app.tar.gz.sig\" \\"
 echo "  \"$OUT/latest.json\" \\"
 echo "  --title \"v$VERSION\" --notes \"版本說明\""
