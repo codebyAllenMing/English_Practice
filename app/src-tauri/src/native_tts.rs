@@ -57,8 +57,12 @@ pub struct TtsState(pub Mutex<Option<TtsEngine>>);
 
 #[tauri::command]
 pub async fn start_practice(app: tauri::AppHandle) -> Result<(), String> {
-	// kokoro 英文聲線唸不了日文,日文課綱先擋語音合成;閱讀模式不經此處不受影響
-	if crate::course_language() != "en" {
+	// 依課綱分流:ja 起 VOICEVOX sidecar;其他非 en 語系尚未支援
+	let lang = crate::course_language();
+	if lang == "ja" {
+		return crate::native_voicevox::ensure_started(&app.state::<crate::native_voicevox::JaTtsState>()).await;
+	}
+	if lang != "en" {
 		return Err("此課綱語系的語音合成尚未就緒(可先用閱讀模式)".to_string());
 	}
 	let state = app.state::<TtsState>();
@@ -112,6 +116,8 @@ pub async fn stop_practice(app: tauri::AppHandle) -> Result<(), String> {
 	let state = app.state::<TtsState>();
 	// 丟掉引擎釋放模型記憶體;下次 start_practice 重新載入並重置 voice 分配
 	*state.0.lock().await = None;
+	// VOICEVOX 子行程一併收掉(英文課綱時本來就是 None,無代價)
+	crate::native_voicevox::shutdown(&app.state::<crate::native_voicevox::JaTtsState>()).await;
 	Ok(())
 }
 
@@ -122,6 +128,10 @@ pub async fn play_line(
 	index: i32,
 ) -> Result<serde_json::Value, String> {
 	crate::validate_folder(&folder)?;
+	if crate::course_language() == "ja" {
+		return crate::native_voicevox::play_line_ja(&app.state::<crate::native_voicevox::JaTtsState>(), &folder, index)
+			.await;
+	}
 	let state = app.state::<TtsState>();
 	let mut guard = state.0.lock().await;
 	let engine = guard.as_mut().ok_or("練習模式未啟動")?;
@@ -130,8 +140,8 @@ pub async fn play_line(
 	tokio::task::block_in_place(|| synth_line(engine, &folder, index))
 }
 
-/// 讀 word.txt 第 index 行(0-based)→ 分配聲音 → 合成 → 回 practice.py 同款 JSON
-pub fn synth_line(engine: &mut TtsEngine, folder: &str, index: i32) -> Result<serde_json::Value, String> {
+/// 讀 word.txt 第 index 行(0-based)→ (講者, 內文, 總行數);en/ja 合成路徑共用
+pub(crate) fn read_line(folder: &str, index: i32) -> Result<(String, String, usize), String> {
 	let word_path = podcasts_dir().join(folder).join("word.txt");
 	let content = std::fs::read_to_string(&word_path).map_err(|e| format!("讀取 word.txt 失敗: {}", e))?;
 	let lines: Vec<&str> = content.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
@@ -140,10 +150,15 @@ pub fn synth_line(engine: &mut TtsEngine, folder: &str, index: i32) -> Result<se
 		return Err("無效的行數".to_string());
 	}
 	let (speaker, text) = parse_line(lines[index as usize]);
-
 	if text.is_empty() {
 		return Err("無法產生音訊".to_string());
 	}
+	Ok((speaker, text, lines.len()))
+}
+
+/// 讀 word.txt 第 index 行(0-based)→ 分配聲音 → 合成 → 回 practice.py 同款 JSON
+pub fn synth_line(engine: &mut TtsEngine, folder: &str, index: i32) -> Result<serde_json::Value, String> {
+	let (speaker, text, total) = read_line(folder, index)?;
 
 	let sid = resolve_sid(engine, folder, &speaker);
 
@@ -165,7 +180,7 @@ pub fn synth_line(engine: &mut TtsEngine, folder: &str, index: i32) -> Result<se
 		"text": text,
 		"audio": BASE64.encode(&wav),
 		"index": index,
-		"total": lines.len(),
+		"total": total,
 	}))
 }
 
@@ -195,17 +210,22 @@ fn manual_sid(dir: &std::path::Path, speaker: &str) -> Option<i32> {
 	VOICES.iter().find(|(n, _, _)| *n == name).map(|(_, sid, _)| *sid)
 }
 
-/// correction.json 的 result.speakers[]:{to: 講者名, gender: "m"/"f"} → 對應性別池輪流
-fn gender_sid(engine: &mut TtsEngine, dir: &std::path::Path, speaker: &str) -> Option<i32> {
+/// correction.json 中該講者的 AI 判定性別('f'/'m');查無或 "u" 回 None。ja 路徑也用
+pub(crate) fn speaker_gender(dir: &std::path::Path, speaker: &str) -> Option<char> {
 	let correction = read_json(&dir.join("correction.json"))?;
 	let speakers = correction["result"]["speakers"].as_array()?;
-	let gender = speakers
-		.iter()
-		.find(|s| s["to"] == speaker)
-		.and_then(|s| s["gender"].as_str())?;
-	let (pool, used): (Vec<i32>, &mut usize) = match gender {
-		"f" => (VOICES.iter().filter(|v| v.2 == 'f').map(|v| v.1).collect(), &mut engine.f_used),
-		"m" => (VOICES.iter().filter(|v| v.2 == 'm').map(|v| v.1).collect(), &mut engine.m_used),
+	match speakers.iter().find(|s| s["to"] == speaker).and_then(|s| s["gender"].as_str()) {
+		Some("f") => Some('f'),
+		Some("m") => Some('m'),
+		_ => None,
+	}
+}
+
+/// AI 判定性別 → 對應性別池輪流
+fn gender_sid(engine: &mut TtsEngine, dir: &std::path::Path, speaker: &str) -> Option<i32> {
+	let (pool, used): (Vec<i32>, &mut usize) = match speaker_gender(dir, speaker)? {
+		'f' => (VOICES.iter().filter(|v| v.2 == 'f').map(|v| v.1).collect(), &mut engine.f_used),
+		'm' => (VOICES.iter().filter(|v| v.2 == 'm').map(|v| v.1).collect(), &mut engine.m_used),
 		_ => return None,
 	};
 	let sid = pool[*used % pool.len()];

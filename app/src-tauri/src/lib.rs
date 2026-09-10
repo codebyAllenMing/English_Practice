@@ -6,6 +6,7 @@ pub mod native_download;
 pub mod native_models;
 pub mod native_transcribe;
 pub mod native_tts;
+pub mod native_voicevox;
 
 pub fn project_dir() -> PathBuf {
     let mut dir = std::env::current_dir().unwrap();
@@ -645,6 +646,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(native_tts::TtsState(tokio::sync::Mutex::new(None)))
+        .manage(native_voicevox::JaTtsState(tokio::sync::Mutex::new(None)))
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -662,8 +664,16 @@ pub fn run() {
                 native_tts::start_practice, native_tts::stop_practice, native_tts::play_line,
                 native_tts::get_voices, native_tts::save_voices,
                 native_models::models_status, native_models::download_models, native_download::tools_status,
+                native_models::voicevox_status, native_models::download_voicevox,
                 log_ui
             ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // 退出時收割 VOICEVOX 子行程,避免孤兒引擎佔著 port 與記憶體
+            if let tauri::RunEvent::Exit = event {
+                use tauri::Manager;
+                native_voicevox::shutdown_blocking(&app.state::<native_voicevox::JaTtsState>());
+            }
+        });
 }

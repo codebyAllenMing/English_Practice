@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { useLoading } from '../Hooks/useLoading'
 import VoiceDialog from '../Components/VoiceDialog'
 
@@ -25,6 +26,8 @@ function Practice() {
     const [ready, setReady] = useState(false)
     const [fontSize, setFontSize] = useState(24)
     const [voiceFolder, setVoiceFolder] = useState('')
+    const [jaDownloading, setJaDownloading] = useState(false) // VOICEVOX 引擎下載中
+    const [jaProgress, setJaProgress] = useState(null) // {received, total}
     const audioRef = useRef(null)
     const listRef = useRef(null)
     const lineRefs = useRef([])
@@ -64,6 +67,26 @@ function Practice() {
             setError(String(err))
         } finally {
             loading(false)
+        }
+    }
+
+    // 日文課綱首次練習:下載 VOICEVOX 引擎(1.8GB)後自動重試啟動
+    const handleDownloadJa = async () => {
+        setJaDownloading(true)
+        setError('')
+        const unlisten = await listen('model-progress', (e) => setJaProgress(e.payload))
+        try {
+            await invoke('download_voicevox')
+            loading(true, '載入語音引擎...')
+            await invoke('start_practice')
+            setReady(true)
+        } catch (err) {
+            setError(String(err))
+        } finally {
+            unlisten()
+            loading(false)
+            setJaDownloading(false)
+            setJaProgress(null)
         }
     }
 
@@ -268,7 +291,33 @@ function Practice() {
             </div>
 
             {error && (
-                <p className="text-sm text-red-500 dark:text-red-400 mb-4">{error}</p>
+                <div className="mb-4">
+                    <p className="text-sm text-red-500 dark:text-red-400">{error}</p>
+                    {error.includes('需要下載日文語音引擎') && (
+                        <button
+                            className="mt-2 px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary-hover"
+                            onClick={handleDownloadJa}
+                        >
+                            下載日文語音引擎(1.8GB,一次性)
+                        </button>
+                    )}
+                </div>
+            )}
+
+            {jaDownloading && (
+                <div className="mb-4">
+                    <p className="text-sm text-blue-600 dark:text-blue-400 mb-2">
+                        {jaProgress
+                            ? `下載語音引擎中... ${Math.round(jaProgress.received / 1048576)} / ${Math.round(jaProgress.total / 1048576)} MB`
+                            : '連線中...'}
+                    </p>
+                    <div className="w-full bg-muted rounded-full h-2">
+                        <div
+                            className="bg-primary h-2 rounded-full transition-all duration-300"
+                            style={{ width: `${jaProgress && jaProgress.total > 0 ? Math.min(100, Math.round(jaProgress.received / jaProgress.total * 100)) : 0}%` }}
+                        />
+                    </div>
+                </div>
             )}
 
             <div className="mb-6 p-6 bg-card rounded-lg border border-edge min-h-[180px] flex flex-col justify-between">

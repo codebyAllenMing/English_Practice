@@ -11,6 +11,8 @@ use crate::{data_dir, log_error_line, log_info_line, try_begin_task};
 enum Kind {
 	File,
 	TarBz2,
+	/// zip(VOICEVOX 的 .vvpp);解到 marker 的父目錄下,macOS 內建 /usr/bin/unzip
+	Zip,
 }
 
 struct ModelSpec {
@@ -61,6 +63,36 @@ const MODELS: [ModelSpec; 4] = [
 	},
 ];
 
+/// 日文語音引擎:不在 MODELS 首次下載清單(英文使用者不強迫吃 1.8GB),
+/// 由練習頁在日文課綱且缺引擎時按需觸發 download_voicevox
+const VOICEVOX_ENGINE: ModelSpec = ModelSpec {
+	name: "VOICEVOX 日文語音引擎",
+	url: "https://github.com/VOICEVOX/voicevox_engine/releases/download/0.25.2/voicevox_engine-macos-arm64-0.25.2.vvpp",
+	marker: "voicevox_engine/run",
+	kind: Kind::Zip,
+	approx_bytes: 1_887_128_088,
+	sha256: "b4db0626f90bca175f4a1833394410f7abd263d2d85fdaa64100861181dcdea5",
+};
+
+#[tauri::command]
+pub fn voicevox_status() -> serde_json::Value {
+	serde_json::json!({
+		"ready": crate::native_voicevox::engine_installed(),
+		"mb": VOICEVOX_ENGINE.approx_bytes / 1_048_576,
+	})
+}
+
+#[tauri::command]
+pub async fn download_voicevox(app: tauri::AppHandle) -> Result<(), String> {
+	let _guard = try_begin_task("模型下載", "voicevox")?;
+	let models_dir = data_dir().join("models");
+	std::fs::create_dir_all(&models_dir).map_err(|e| format!("建立 models 目錄失敗: {}", e))?;
+	download_one(&VOICEVOX_ENGINE, &models_dir, 0, 1, &move |payload| {
+		let _ = app.emit("model-progress", payload);
+	})
+	.await
+}
+
 fn missing_models() -> Vec<&'static ModelSpec> {
 	let models_dir = data_dir().join("models");
 	MODELS.iter().filter(|m| !models_dir.join(m.marker).exists()).collect()
@@ -100,24 +132,48 @@ where
 	std::fs::create_dir_all(&models_dir).map_err(|e| format!("建立 models 目錄失敗: {}", e))?;
 
 	for (index, spec) in missing.iter().enumerate() {
-		log_info_line("models", &format!("開始下載: {} ({})", spec.name, spec.url));
+		download_one(spec, &models_dir, index, count, &notify).await?;
+	}
 
-		let dest = match spec.kind {
-			Kind::File => models_dir.join(spec.marker),
-			Kind::TarBz2 => models_dir.join(".download.tmp.tar.bz2"),
-		};
-		if let Err(e) = fetch_to_file(spec, &dest, index, count, &notify).await {
-			let _ = std::fs::remove_file(&dest);
-			log_error_line("models", &format!("下載失敗: {} — {}", spec.name, e));
-			return Err(format!("{} 下載失敗:{}", spec.name, e));
-		}
+	log_info_line(
+		"models",
+		&format!("全部模型就緒 (共 {} 項, 耗時 {:.0}s)", count, start.elapsed().as_secs_f32()),
+	);
+	Ok(())
+}
 
-		if let Kind::TarBz2 = spec.kind {
+/// 下載單一模型:抓檔 → 解壓(tar/zip)→ marker 存在性 + SHA256 驗證
+async fn download_one<F>(
+	spec: &ModelSpec,
+	models_dir: &std::path::Path,
+	index: usize,
+	count: usize,
+	notify: &F,
+) -> Result<(), String>
+where
+	F: Fn(serde_json::Value) + Send + Sync,
+{
+	log_info_line("models", &format!("開始下載: {} ({})", spec.name, spec.url));
+
+	let dest = match spec.kind {
+		Kind::File => models_dir.join(spec.marker),
+		Kind::TarBz2 => models_dir.join(".download.tmp.tar.bz2"),
+		Kind::Zip => models_dir.join(".download.tmp.zip"),
+	};
+	if let Err(e) = fetch_to_file(spec, &dest, index, count, notify).await {
+		let _ = std::fs::remove_file(&dest);
+		log_error_line("models", &format!("下載失敗: {} — {}", spec.name, e));
+		return Err(format!("{} 下載失敗:{}", spec.name, e));
+	}
+
+	match spec.kind {
+		Kind::File => {}
+		Kind::TarBz2 => {
 			let status = std::process::Command::new("/usr/bin/tar")
 				.arg("xjf")
 				.arg(&dest)
 				.arg("-C")
-				.arg(&models_dir)
+				.arg(models_dir)
 				.status()
 				.map_err(|e| format!("無法執行 tar: {}", e))?;
 			let _ = std::fs::remove_file(&dest);
@@ -126,28 +182,47 @@ where
 				return Err(format!("{} 解壓失敗", spec.name));
 			}
 		}
-
-		let marker_path = models_dir.join(spec.marker);
-		if !marker_path.exists() {
-			return Err(format!("{} 下載後驗證失敗(缺 {})", spec.name, spec.marker));
+		Kind::Zip => {
+			// zip 內容在封存根層,解到 marker 的父目錄(如 voicevox_engine/)
+			let target = models_dir.join(std::path::Path::new(spec.marker).parent().unwrap_or_else(|| "".as_ref()));
+			let status = std::process::Command::new("/usr/bin/unzip")
+				.arg("-oq")
+				.arg(&dest)
+				.arg("-d")
+				.arg(&target)
+				.status()
+				.map_err(|e| format!("無法執行 unzip: {}", e))?;
+			let _ = std::fs::remove_file(&dest);
+			if !status.success() {
+				log_error_line("models", &format!("解壓失敗: {}", spec.name));
+				return Err(format!("{} 解壓失敗", spec.name));
+			}
 		}
-		// 完整性驗證:hash 不符即清除,避免留下毒檔
-		let actual = sha256_file(&marker_path)?;
-		if actual != spec.sha256 {
-			remove_model_artifact(&models_dir, spec.marker);
-			log_error_line(
-				"models",
-				&format!("SHA256 不符: {} (expected {}, got {})", spec.name, spec.sha256, actual),
-			);
-			return Err(format!("{} 完整性驗證失敗,已刪除,請重試", spec.name));
-		}
-		log_info_line("models", &format!("完成: {} (SHA256 驗證通過)", spec.name));
 	}
 
-	log_info_line(
-		"models",
-		&format!("全部模型就緒 (共 {} 項, 耗時 {:.0}s)", count, start.elapsed().as_secs_f32()),
-	);
+	let marker_path = models_dir.join(spec.marker);
+	if !marker_path.exists() {
+		return Err(format!("{} 下載後驗證失敗(缺 {})", spec.name, spec.marker));
+	}
+	// 完整性驗證:hash 不符即清除,避免留下毒檔
+	let actual = sha256_file(&marker_path)?;
+	if actual != spec.sha256 {
+		remove_model_artifact(models_dir, spec.marker);
+		log_error_line(
+			"models",
+			&format!("SHA256 不符: {} (expected {}, got {})", spec.name, spec.sha256, actual),
+		);
+		return Err(format!("{} 完整性驗證失敗,已刪除,請重試", spec.name));
+	}
+	// zip 不保證還原執行權限,marker 為執行檔時補上
+	if let Kind::Zip = spec.kind {
+		#[cfg(unix)]
+		{
+			use std::os::unix::fs::PermissionsExt;
+			let _ = std::fs::set_permissions(&marker_path, std::fs::Permissions::from_mode(0o755));
+		}
+	}
+	log_info_line("models", &format!("完成: {} (SHA256 驗證通過)", spec.name));
 	Ok(())
 }
 

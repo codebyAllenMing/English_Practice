@@ -118,4 +118,6 @@ API key 進 Keychain、模型 SHA256 驗證、路徑跳脫防護、嚴格 CSP、
 
 ## 技術棧
 
-Tauri 2 · Rust(tokio / whisper-rs / sherpa-onnx / reqwest)· React 19 · Vite · Tailwind v4 · Anthropic API(claude-haiku-4-5, structured outputs)
+Tauri 2 · Rust(tokio / whisper-rs / sherpa-onnx / reqwest)· React 19 · Vite · Tailwind v4 · Anthropic API(claude-haiku-4-5, structured outputs)· [VOICEVOX](https://voicevox.hiroshiba.jp/)(日文 TTS,按需下載)
+
+> 日文語音引擎:VOICEVOX(音源標示:VOICEVOX:春日部つむぎ、VOICEVOX:玄野武宏)
