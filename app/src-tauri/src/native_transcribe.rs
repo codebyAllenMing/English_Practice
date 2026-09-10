@@ -19,7 +19,7 @@ use sherpa_onnx::{
 use tauri::Emitter;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
-use crate::{log_error_line, log_info_line, data_dir};
+use crate::{log_error_line, log_info_line, data_dir, podcasts_dir};
 
 const WHISPER_MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 const SEGMENTATION_MODEL: &str = "sherpa-onnx-pyannote-segmentation-3-0/model.onnx";
@@ -35,6 +35,10 @@ struct Word {
 
 #[tauri::command]
 pub async fn transcribe_audio(app: tauri::AppHandle, folder: String) -> Result<String, String> {
+	// 非英文課綱先擋下:whisper 語言參數與斷行規則尚未支援其他語系
+	if crate::course_language() != "en" {
+		return Err("此課綱語系的轉譯管線尚未就緒(目前僅支援英文)".to_string());
+	}
 	crate::validate_folder(&folder)?;
 	let _guard = crate::try_begin_task("轉譯", &folder)?;
 	let progress_app = app.clone();
@@ -79,7 +83,7 @@ pub fn run_pipeline(folder: &str, progress: Progress) -> Result<String, String> 
 }
 
 fn run_pipeline_inner(folder: &str, progress: &Progress, total_timer: Instant) -> Result<String, String> {
-	let folder_path = data_dir().join("podcasts").join(folder);
+	let folder_path = podcasts_dir().join(folder);
 	let audio_path = folder_path.join("podcast.mp3");
 	if !audio_path.exists() {
 		return Err(format!("找不到音檔 {}", audio_path.display()));

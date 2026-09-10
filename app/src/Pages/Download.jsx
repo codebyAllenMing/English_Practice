@@ -19,6 +19,7 @@ function Download() {
     const [canCorrect, setCanCorrect] = useState(false)
     const [confirmDelete, setConfirmDelete] = useState('')
     const [tools, setTools] = useState(null) // {ytDlp, ffmpeg}
+    const [lang, setLang] = useState('en') // 課綱語系(全域,Rust 端依此分流 podcasts/<lang>/)
     // 校正狀態在全域 Provider,切換分頁不會遺失;correctStatus 改用 provider 的 lastMessage
     const { correcting, lastMessage: correctStatus, startCorrect } = useCorrection()
 
@@ -34,8 +35,25 @@ function Download() {
     // CLI 模式不需要 key;API 模式要有 key 才能按
     const loadConfig = () => {
         invoke('get_config')
-            .then((config) => setCanCorrect((config.correction_mode || 'api') === 'cli' || !!config.anthropic_api_key))
+            .then((config) => {
+                setCanCorrect((config.correction_mode || 'api') === 'cli' || !!config.anthropic_api_key)
+                setLang(config.course_language || 'en')
+            })
             .catch(console.error)
+    }
+
+    // 課綱切換:寫回 config 後所有 Rust 指令自動分流到 podcasts/<lang>/,清單重載
+    const handleLangToggle = async () => {
+        const next = lang === 'en' ? 'ja' : 'en'
+        try {
+            const config = await invoke('get_config')
+            await invoke('save_config', { config: { ...config, course_language: next } })
+            setLang(next)
+            window.dispatchEvent(new Event('config-saved'))
+            loadDownloads()
+        } catch (err) {
+            setStatus(`錯誤：${err}`)
+        }
     }
 
     useEffect(() => {
@@ -134,7 +152,25 @@ function Download() {
 
     return (
         <div>
-            <h1 className="text-2xl font-bold mb-6">下載 Podcast</h1>
+            <div className="flex items-center justify-between mb-6">
+                <h1 className="text-2xl font-bold">下載 Podcast</h1>
+                <div className="flex items-center gap-2">
+                    <span className={`text-sm ${lang === 'en' ? 'text-ink font-bold' : 'text-ink-faint'}`}>英文</span>
+                    <button
+                        role="switch"
+                        aria-checked={lang === 'ja'}
+                        onClick={handleLangToggle}
+                        disabled={downloading || fetching}
+                        title="切換課綱語系"
+                        className={`relative w-11 h-6 rounded-full transition-colors disabled:opacity-50 ${lang === 'ja' ? 'bg-primary' : 'bg-muted-strong'}`}
+                    >
+                        <span
+                            className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${lang === 'ja' ? 'translate-x-5' : ''}`}
+                        />
+                    </button>
+                    <span className={`text-sm ${lang === 'ja' ? 'text-ink font-bold' : 'text-ink-faint'}`}>日文</span>
+                </div>
+            </div>
 
             {missingTools.length > 0 && (
                 <div className="mb-4 p-4 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/60 rounded-lg text-sm text-amber-800 dark:text-amber-200">

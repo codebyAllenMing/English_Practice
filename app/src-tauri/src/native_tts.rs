@@ -9,7 +9,7 @@ use sherpa_onnx::{GenerationConfig, OfflineTts, OfflineTtsConfig, OfflineTtsKoko
 use tauri::Manager;
 use tokio::sync::Mutex;
 
-use crate::{log_error_line, log_info_line, data_dir};
+use crate::{log_error_line, log_info_line, data_dir, podcasts_dir};
 
 const MODEL_DIR: &str = "kokoro-multi-lang-v1_0";
 
@@ -128,7 +128,7 @@ pub async fn play_line(
 
 /// 讀 word.txt 第 index 行(0-based)→ 分配聲音 → 合成 → 回 practice.py 同款 JSON
 pub fn synth_line(engine: &mut TtsEngine, folder: &str, index: i32) -> Result<serde_json::Value, String> {
-	let word_path = data_dir().join("podcasts").join(folder).join("word.txt");
+	let word_path = podcasts_dir().join(folder).join("word.txt");
 	let content = std::fs::read_to_string(&word_path).map_err(|e| format!("讀取 word.txt 失敗: {}", e))?;
 	let lines: Vec<&str> = content.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
 
@@ -171,7 +171,7 @@ fn resolve_sid(engine: &mut TtsEngine, folder: &str, speaker: &str) -> i32 {
 	if let Some(sid) = engine.voice_map.get(speaker) {
 		return *sid;
 	}
-	let dir = data_dir().join("podcasts").join(folder);
+	let dir = podcasts_dir().join(folder);
 
 	let sid = manual_sid(&dir, speaker)
 		.or_else(|| gender_sid(engine, &dir, speaker))
@@ -217,14 +217,14 @@ fn read_json(path: &std::path::Path) -> Option<serde_json::Value> {
 #[tauri::command]
 pub fn get_voices(folder: String) -> Result<serde_json::Value, String> {
 	crate::validate_folder(&folder)?;
-	let path = data_dir().join("podcasts").join(&folder).join("voices.json");
+	let path = podcasts_dir().join(&folder).join("voices.json");
 	Ok(read_json(&path).unwrap_or_else(|| serde_json::json!({})))
 }
 
 #[tauri::command]
 pub fn save_voices(folder: String, voices: serde_json::Value) -> Result<(), String> {
 	crate::validate_folder(&folder)?;
-	let path = data_dir().join("podcasts").join(&folder).join("voices.json");
+	let path = podcasts_dir().join(&folder).join("voices.json");
 	std::fs::write(&path, serde_json::to_string_pretty(&voices).map_err(|e| e.to_string())?)
 		.map_err(|e| format!("寫入 voices.json 失敗: {}", e))
 }

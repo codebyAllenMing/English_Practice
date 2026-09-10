@@ -21,7 +21,9 @@ pub fn project_dir() -> PathBuf {
 static DATA_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
 pub fn init_data_dir(path: PathBuf) {
-    let _ = DATA_DIR.set(path);
+    if DATA_DIR.set(path).is_ok() {
+        migrate_podcasts_layout(DATA_DIR.get().unwrap());
+    }
 }
 
 pub(crate) fn data_dir() -> &'static PathBuf {
@@ -32,10 +34,43 @@ pub(crate) fn data_dir() -> &'static PathBuf {
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
             PathBuf::from(home).join("Library/Application Support/com.allenming.english-practice")
         };
-        let _ = fs::create_dir_all(dir.join("podcasts"));
         let _ = fs::create_dir_all(dir.join("models"));
+        migrate_podcasts_layout(&dir);
         dir
     })
+}
+
+/// podcasts/ 依課綱語系分目錄(en/ja);舊版扁平結構的集數一次性搬進 en/
+fn migrate_podcasts_layout(root: &std::path::Path) {
+    let podcasts = root.join("podcasts");
+    let en = podcasts.join("en");
+    let _ = fs::create_dir_all(&en);
+    let _ = fs::create_dir_all(podcasts.join("ja"));
+    if let Ok(entries) = fs::read_dir(&podcasts) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if e.path().is_dir() && name != "en" && name != "ja" {
+                if fs::rename(e.path(), en.join(&name)).is_ok() {
+                    log_info_line("migrate", &format!("集數搬遷至 en/: {}", name));
+                }
+            }
+        }
+    }
+}
+
+/// 目前課綱語系(config.course_language,預設 en)。直接讀檔不經 Keychain 疊合,避免每次定址都 spawn security
+pub(crate) fn course_language() -> String {
+    fs::read_to_string(data_dir().join("config.json"))
+        .ok()
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+        .and_then(|v| v["course_language"].as_str().map(String::from))
+        .filter(|l| !l.is_empty() && l.len() <= 8 && l.chars().all(|c| c.is_ascii_lowercase()))
+        .unwrap_or_else(|| "en".to_string())
+}
+
+/// 集數根目錄依課綱語系分流:podcasts/<lang>/
+pub(crate) fn podcasts_dir() -> PathBuf {
+    data_dir().join("podcasts").join(course_language())
 }
 
 /// 防路徑跳脫:所有收 folder 參數的 command 只接受單層資料夾名
@@ -152,7 +187,7 @@ struct PodcastInfo {
 
 #[tauri::command]
 fn list_podcasts() -> Result<Vec<PodcastInfo>, String> {
-    let podcasts_dir = data_dir().join("podcasts");
+    let podcasts_dir = podcasts_dir();
     if !podcasts_dir.exists() {
         return Ok(vec![]);
     }
@@ -177,7 +212,7 @@ fn list_podcasts() -> Result<Vec<PodcastInfo>, String> {
 
 #[tauri::command]
 fn list_untranscribed() -> Result<Vec<String>, String> {
-    let podcasts_dir = data_dir().join("podcasts");
+    let podcasts_dir = podcasts_dir();
     if !podcasts_dir.exists() {
         return Ok(vec![]);
     }
@@ -314,7 +349,7 @@ async fn correct_transcript(folder: String) -> Result<serde_json::Value, String>
 }
 
 async fn correct_transcript_inner(folder: &str) -> Result<serde_json::Value, String> {
-    let folder_path = data_dir().join("podcasts").join(folder);
+    let folder_path = podcasts_dir().join(folder);
     let raw_path = folder_path.join("word.raw.txt");
     let word_path = folder_path.join("word.txt");
 
@@ -540,7 +575,7 @@ fn extract_json(text: &str) -> &str {
 #[tauri::command]
 fn delete_podcast(folder: String) -> Result<(), String> {
     validate_folder(&folder)?;
-    let dir = data_dir().join("podcasts").join(&folder);
+    let dir = podcasts_dir().join(&folder);
     if !dir.is_dir() {
         return Err("找不到資料夾".to_string());
     }
@@ -549,7 +584,7 @@ fn delete_podcast(folder: String) -> Result<(), String> {
 
 #[tauri::command]
 fn list_transcribed() -> Result<Vec<String>, String> {
-    let podcasts_dir = data_dir().join("podcasts");
+    let podcasts_dir = podcasts_dir();
     if !podcasts_dir.exists() {
         return Ok(vec![]);
     }
@@ -574,14 +609,18 @@ fn list_transcribed() -> Result<Vec<String>, String> {
 #[tauri::command]
 fn get_lines(folder: String) -> Result<Vec<String>, String> {
     validate_folder(&folder)?;
-    let word_path = data_dir().join("podcasts").join(&folder).join("word.txt");
+    let word_path = podcasts_dir().join(&folder).join("word.txt");
     let content = fs::read_to_string(&word_path).map_err(|e| e.to_string())?;
     Ok(content.lines().filter(|l| !l.trim().is_empty()).map(|l| l.to_string()).collect())
 }
 
 #[tauri::command]
 fn get_config() -> Result<serde_json::Value, String> {
-    Ok(load_config_merged())
+    let mut config = load_config_merged();
+    if config["course_language"].as_str().is_none() {
+        config["course_language"] = serde_json::Value::String("en".to_string());
+    }
+    Ok(config)
 }
 
 #[tauri::command]
